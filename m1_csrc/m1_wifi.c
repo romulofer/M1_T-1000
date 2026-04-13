@@ -1038,8 +1038,9 @@ static bool wifi_do_connect(const char *ssid, const char *password)
 		wifi_display_msg(err_msg1, err_msg2);
 		M1_LOG_E(M1_LOGDB_TAG, "Connect failed: %s %s (code %ld)\n\r", err_msg1, err_msg2, conn_req.resp_event_status);
 		vTaskDelay(pdMS_TO_TICKS(2500));
-		return false;
 	}
+
+	return false;
 }
 
 

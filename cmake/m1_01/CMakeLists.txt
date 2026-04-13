@@ -492,6 +492,8 @@ target_sources(m1_01 INTERFACE
     ../../m1_csrc/game_trex.c
     ../../m1_csrc/game_pong.c
     ../../m1_csrc/game_dice.c
+    ../../m1_csrc/app_dab_timer.c
+    ../../m1_csrc/app_dvd_logo.c
     # === Enhanced firmware: ELF App Loader (Phase 10) ===
     ../../m1_csrc/m1_elf_loader.c
     ../../m1_csrc/m1_app_api.c
@@ -509,4 +511,3 @@ target_link_libraries(m1_01 INTERFACE
 if(CMAKE_C_STANDARD LESS 11)
     message(ERROR "Generated code requires C11 or higher")
 endif()
-

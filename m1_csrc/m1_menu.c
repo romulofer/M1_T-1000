@@ -548,11 +548,28 @@ S_M1_Menu_t menu_Games =
 
 /*-------------------------------- > Apps ------------------------------------*/
 #ifdef M1_APP_APPS_ENABLE
+#include "m1_builtin_apps.h"
 #include "m1_app_manager.h"
+
+S_M1_Menu_t menu_DabTimer =
+{
+    "Dab Timer", app_dab_timer_run, NULL, NULL, 0, 0, NULL, NULL, {NULL}
+};
+
+S_M1_Menu_t menu_DvdLogo =
+{
+    "DVD Logo", app_dvd_logo_run, NULL, NULL, 0, 0, NULL, NULL, {NULL}
+};
+
+S_M1_Menu_t menu_Apps_Browser =
+{
+    "Apps Browser", game_apps_browser_run, NULL, NULL, 0, 0, NULL, NULL, {NULL}
+};
 
 S_M1_Menu_t menu_Apps =
 {
-    "Apps", game_apps_browser_run, NULL, NULL, 0, 0, menu_m1_icon_apps, NULL, {NULL}
+    "Apps", NULL, NULL, NULL, 3, 0, menu_m1_icon_apps, NULL,
+    {&menu_DabTimer, &menu_DvdLogo, &menu_Apps_Browser}
 };
 #endif /* M1_APP_APPS_ENABLE */
 
