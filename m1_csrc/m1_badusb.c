@@ -1095,8 +1095,8 @@ static void badusb_draw_list(const char *title, const char *items[],
                              uint8_t count, uint8_t sel)
 {
     char badge[12];
-    uint8_t y = 24;
-    uint8_t max_visible = 3;
+    uint8_t y = 30;
+    uint8_t max_visible = 2;
     uint8_t top = 0;
 
     snprintf(badge, sizeof(badge), "%u/%u", (unsigned)(sel + 1), (unsigned)count);
@@ -1121,7 +1121,7 @@ static void badusb_draw_list(const char *title, const char *items[],
     {
         if (i == sel)
         {
-            u8g2_DrawBox(&m1_u8g2, 6, y - 7, 114, 9);
+            u8g2_DrawBox(&m1_u8g2, 6, y - 7, 114, 11);
             u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
             u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_B);
             m1_draw_text(&m1_u8g2, 10, y, 108, items[i], TEXT_ALIGN_LEFT);
@@ -1130,10 +1130,10 @@ static void badusb_draw_list(const char *title, const char *items[],
         }
         else
         {
-            u8g2_DrawFrame(&m1_u8g2, 6, y - 7, 114, 9);
+            u8g2_DrawFrame(&m1_u8g2, 6, y - 7, 114, 11);
             m1_draw_text(&m1_u8g2, 10, y, 108, items[i], TEXT_ALIGN_LEFT);
         }
-        y += 10;
+        y += 12;
     }
 
     m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "OK", arrowright_8x8);

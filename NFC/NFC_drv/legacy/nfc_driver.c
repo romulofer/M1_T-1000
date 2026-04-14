@@ -339,7 +339,7 @@ void nfc_worker_task(void *arg)
                 //platformLog("NFC Worker Task: rfal_init, moving to Process state\r\n");
                 NfcRole.nfc_init_func();
                 NfcState = NFC_STATE_PROCESS;
-                vTaskDelay(5);
+                vTaskDelay(pdMS_TO_TICKS(2));
                 break;
 
             case NFC_STATE_PROCESS:
@@ -368,7 +368,7 @@ void nfc_worker_task(void *arg)
                     }                    
                     
                 }
-                vTaskDelay(5);
+                vTaskDelay(pdMS_TO_TICKS(2));
                 break;
 
             case NFC_STATE_DONE:

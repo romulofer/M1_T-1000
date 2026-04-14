@@ -76,6 +76,7 @@ static const char *m1_nfc_tool_options[] = {
 	"Wipe Tag"
 };
 
+
 //************************** S T R U C T U R E S *******************************
 
 typedef enum
@@ -127,6 +128,7 @@ static S_M1_file_info *f_info = NULL;
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
 void nfc_read(void);
+void nfc_fast_read(void);
 void nfc_detect_reader(void);
 void nfc_saved(void);
 void nfc_extra_actions(void);
@@ -355,6 +357,7 @@ void menu_nfc_deinit(void)
 void nfc_read(void)
 {
 	platformLog("nfc_read()\r\n");
+	nfc_poller_set_profile(NFC_POLL_PROFILE_NORMAL);
 	m1_gui_submenu_update(NULL, 0, 0, X_MENU_UPDATE_INIT);
 	nfc_uiview_gui_latest_param = 0xFF; // Initialize with an invalid parameter
 	// init
@@ -367,6 +370,24 @@ void nfc_read(void)
 		;
 	}
 	platformLog("nfc_read()-exit\r\n");
+}
+
+void nfc_fast_read(void)
+{
+	platformLog("nfc_fast_read()\r\n");
+	nfc_poller_set_profile(NFC_POLL_PROFILE_FAST_A);
+	m1_gui_submenu_update(NULL, 0, 0, X_MENU_UPDATE_INIT);
+	nfc_uiview_gui_latest_param = 0xFF;
+	m1_uiView_functions_init(VIEW_MODE_NFC_END, view_nfc_read_table);
+	m1_uiView_display_switch(VIEW_MODE_NFC_READ, NFC_READ_DISPLAY_PARAM_READING_READY);
+
+	while( m1_uiView_q_message_process() )
+	{
+		;
+	}
+
+	nfc_poller_set_profile(NFC_POLL_PROFILE_NORMAL);
+	platformLog("nfc_fast_read()-exit\r\n");
 }
 
 /*============================================================================*/
@@ -488,16 +509,21 @@ static void nfc_read_gui_update(uint8_t param)
     /* Graphic work starts here */
     u8g2_FirstPage(&m1_u8g2); // This call required for page drawing in mode 1
 
-    if( param==NFC_READ_DISPLAY_PARAM_READING_READY )	// reading
+	if( param==NFC_READ_DISPLAY_PARAM_READING_READY )	// reading
     {
 		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-		m1_draw_header_bar(&m1_u8g2, "NFC Read", "Live");
+		m1_draw_header_bar(&m1_u8g2, "NFC Read",
+			(nfc_poller_get_profile() == NFC_POLL_PROFILE_FAST_A) ? "Fast" : "Live");
 		u8g2_DrawXBMP(&m1_u8g2, 2, 14, 48, 48, nfc_read_48x48);
 		m1_draw_content_frame(&m1_u8g2, 52, 16, 72, 28);
 		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-		m1_draw_text(&m1_u8g2, 58, 24, 60, "Reading", TEXT_ALIGN_LEFT);
+		m1_draw_text(&m1_u8g2, 58, 24, 60,
+			(nfc_poller_get_profile() == NFC_POLL_PROFILE_FAST_A) ? "Fast scan" : "Reading",
+			TEXT_ALIGN_LEFT);
 		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-		m1_draw_text(&m1_u8g2, 58, 33, 60, "Hold card", TEXT_ALIGN_LEFT);
+		m1_draw_text(&m1_u8g2, 58, 33, 60,
+			(nfc_poller_get_profile() != NFC_POLL_PROFILE_NORMAL) ? "NFC-A only" : "Hold card",
+			TEXT_ALIGN_LEFT);
 		m1_draw_text(&m1_u8g2, 58, 41, 60, "to the back", TEXT_ALIGN_LEFT);
     }
     else if( param==NFC_READ_DISPLAY_PARAM_READING_COMPLETE )	// read done

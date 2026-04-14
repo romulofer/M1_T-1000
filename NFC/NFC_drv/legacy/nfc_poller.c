@@ -56,6 +56,7 @@
 
 #include "rfal_analogConfig.h"
 #include "rfal_rf.h"
+#include "rfal_chip.h"
 #include "uiView.h"
 #include "nfc_driver.h"
 #include "nfc_poller.h"
@@ -134,6 +135,7 @@ extern uint8_t g_nfc_valid_bits[NFC_VALID_BITS_SIZE];
 static rfalNfcDiscoverParam discParam;
 static uint8_t              state = NOTINIT;
 static bool                 multiSel;
+static nfc_poll_profile_t   s_poll_profile = NFC_POLL_PROFILE_NORMAL;
 
 
 /* NFC-A CE config */
@@ -598,6 +600,16 @@ void ReadCycle(void)
     } /* switch(state) */
 }
 
+void nfc_poller_set_profile(nfc_poll_profile_t profile)
+{
+    s_poll_profile = profile;
+}
+
+nfc_poll_profile_t nfc_poller_get_profile(void)
+{
+    return s_poll_profile;
+}
+
 
 /*============================================================================*/
 /**
@@ -613,6 +625,7 @@ void ReadCycle(void)
 bool ReadIni(void)
 {
     ReturnCode err = RFAL_ERR_NONE;
+    bool fast_a_only = (s_poll_profile == NFC_POLL_PROFILE_FAST_A);
 
     /* 1) RFAL Initialize (retry 2 times) */
     for (int i = 0; i < 2; i++) {
@@ -627,8 +640,8 @@ bool ReadIni(void)
     rfalNfcDefaultDiscParams(&discParam);
 
     discParam.devLimit       = 1U;
-    discParam.totalDuration  = 1000U;                      /* Discovery window (adjust if needed) */
-    discParam.notifyCb       = PollerNotif;                  /* Keep if in use */
+    discParam.totalDuration  = fast_a_only ? 220U : 450U; /* Shorter windows improve responsiveness */
+    discParam.notifyCb       = PollerNotif;
 #if defined(RFAL_COMPLIANCE_MODE_NFC)
     discParam.compMode       = RFAL_COMPLIANCE_MODE_NFC;   /* Recommended for application */
 #endif
@@ -639,18 +652,21 @@ bool ReadIni(void)
 #if RFAL_FEATURE_NFCA
     discParam.techs2Find    |= RFAL_NFC_POLL_TECH_A;
 #endif
+    if (!fast_a_only)
+    {
 #if RFAL_FEATURE_NFCB
-    discParam.techs2Find    |= RFAL_NFC_POLL_TECH_B;
+        discParam.techs2Find |= RFAL_NFC_POLL_TECH_B;
 #endif
 #if RFAL_FEATURE_NFCF
-    discParam.techs2Find    |= RFAL_NFC_POLL_TECH_F;
+        discParam.techs2Find |= RFAL_NFC_POLL_TECH_F;
 #endif
 #if RFAL_FEATURE_NFCV
-    discParam.techs2Find    |= RFAL_NFC_POLL_TECH_V;
+        discParam.techs2Find |= RFAL_NFC_POLL_TECH_V;
 #endif
 #if RFAL_FEATURE_ST25TB
-    discParam.techs2Find    |= RFAL_NFC_POLL_TECH_ST25TB;
+        discParam.techs2Find |= RFAL_NFC_POLL_TECH_ST25TB;
 #endif
+    }
 
     /* Never enabled (READ ONLY) */
     /* discParam.techs2Find |= RFAL_NFC_POLL_TECH_AP2P;        */

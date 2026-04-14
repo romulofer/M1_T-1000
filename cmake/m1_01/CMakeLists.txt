@@ -496,6 +496,7 @@ target_sources(m1_01 INTERFACE
     ../../m1_csrc/app_dvd_logo.c
     ../../m1_csrc/app_system_dashboard.c
     ../../m1_csrc/app_file_tools.c
+    ../../m1_csrc/app_esp32_link.c
     ../../m1_csrc/app_clock.c
     ../../m1_csrc/app_hex_viewer.c
     ../../m1_csrc/m1_rgb_backlight.c

@@ -184,6 +184,11 @@ S_M1_Menu_t menu_NFC_Read =
     "Read", nfc_read, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
+S_M1_Menu_t menu_NFC_Fast_Read =
+{
+    "Fast Read", nfc_fast_read, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+
 S_M1_Menu_t menu_NFC_Saved =
 {
     "Saved", nfc_saved, NULL, NULL, 0, 0, NULL, NULL, NULL
@@ -217,15 +222,15 @@ S_M1_Menu_t menu_NFC_Import =
 
 S_M1_Menu_t menu_NFC =
 {
-    "NFC", &menu_nfc_init, menu_nfc_deinit, NULL, 7, 0, menu_m1_icon_nfc, NULL,
-    {&menu_NFC_Read, &menu_NFC_Saved, &menu_NFC_Add_Manually, &menu_NFC_Import,
+    "NFC", &menu_nfc_init, menu_nfc_deinit, NULL, 8, 0, menu_m1_icon_nfc, NULL,
+    {&menu_NFC_Read, &menu_NFC_Fast_Read, &menu_NFC_Saved, &menu_NFC_Add_Manually, &menu_NFC_Import,
      &menu_NFC_Extra_Actions, &menu_NFC_Tools, &menu_NFC_Detect_Reader}
 };
 #else
 S_M1_Menu_t menu_NFC =
 {
-    "NFC", &menu_nfc_init, menu_nfc_deinit, NULL, 6, 0, menu_m1_icon_nfc, NULL,
-    {&menu_NFC_Read, &menu_NFC_Saved, &menu_NFC_Add_Manually,
+    "NFC", &menu_nfc_init, menu_nfc_deinit, NULL, 7, 0, menu_m1_icon_nfc, NULL,
+    {&menu_NFC_Read, &menu_NFC_Fast_Read, &menu_NFC_Saved, &menu_NFC_Add_Manually,
      &menu_NFC_Extra_Actions, &menu_NFC_Tools, &menu_NFC_Detect_Reader}
 };
 #endif
@@ -447,6 +452,16 @@ S_M1_Menu_t menu_Wifi_Status =
     "Status", wifi_show_status, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
+S_M1_Menu_t menu_Wifi_Mode =
+{
+    "Mode", wifi_show_mode, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+
+S_M1_Menu_t menu_Wifi_Stats =
+{
+    "Stats", wifi_show_stats, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+
 S_M1_Menu_t menu_Wifi_Disconnect =
 {
     "Disconnect", wifi_disconnect, NULL, NULL, 0, 0, NULL, NULL, NULL
@@ -454,10 +469,10 @@ S_M1_Menu_t menu_Wifi_Disconnect =
 
 S_M1_Menu_t menu_Wifi =
 {
-    "WiFi 2.4G", menu_wifi_init, NULL, NULL, 9, 0, menu_m1_icon_wifi, NULL,
+    "WiFi 2.4G", menu_wifi_init, NULL, NULL, 11, 0, menu_m1_icon_wifi, NULL,
     {&menu_Wifi_Scan_AP, &menu_Wifi_Survey, &menu_Wifi_Health, &menu_802154_Zigbee,
      &menu_802154_Thread, &menu_Wifi_Config, &menu_Wifi_Sync_RTC,
-     &menu_Wifi_Status, &menu_Wifi_Disconnect}
+     &menu_Wifi_Status, &menu_Wifi_Mode, &menu_Wifi_Stats, &menu_Wifi_Disconnect}
 };
 #else
 S_M1_Menu_t menu_Wifi =
@@ -586,6 +601,11 @@ S_M1_Menu_t menu_FileTools =
     "File Tools", app_file_tools_run, NULL, NULL, 0, 0, NULL, NULL, {NULL}
 };
 
+S_M1_Menu_t menu_ESP32Link =
+{
+    "ESP32 Link", app_esp32_link_run, NULL, NULL, 0, 0, NULL, NULL, {NULL}
+};
+
 S_M1_Menu_t menu_Clock =
 {
     "Clock", app_clock_run, NULL, NULL, 0, 0, NULL, NULL, {NULL}
@@ -608,9 +628,9 @@ S_M1_Menu_t menu_RGBBacklight =
 
 S_M1_Menu_t menu_Apps =
 {
-    "Apps", NULL, NULL, NULL, 8, 0, menu_m1_icon_apps, NULL,
+    "Apps", NULL, NULL, NULL, 9, 0, menu_m1_icon_apps, NULL,
     {&menu_DabTimer, &menu_DvdLogo, &menu_SystemDashboard, &menu_FileTools,
-     &menu_Clock, &menu_HexViewer, &menu_RGBBacklight, &menu_Apps_Browser}
+     &menu_ESP32Link, &menu_Clock, &menu_HexViewer, &menu_RGBBacklight, &menu_Apps_Browser}
 };
 #endif /* M1_APP_APPS_ENABLE */
 

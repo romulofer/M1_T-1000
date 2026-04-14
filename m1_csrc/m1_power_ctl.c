@@ -55,6 +55,7 @@ enum {
 float f_monitor;
 static TimerHandle_t batt_info_timer_hdl;
 static bool s_shutdown_prompt_wait_release = false;
+static uint8_t s_battery_info_scroll = 0U;
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
 
@@ -71,6 +72,8 @@ static void m1_system_drivers_disable(void);
 void m1_power_down(void);
 uint8_t m1_check_battery_level(uint8_t remaining_charge);
 static void battery_info_timer(TimerHandle_t xTimer);
+static const char *battery_info_charge_state_text(const S_M1_Power_Status_t *status);
+static const char *battery_info_fault_text(const S_M1_Power_Status_t *status);
 
 static void battery_info_gui_init(void);
 static void battery_info_gui_create(uint8_t param);
@@ -138,6 +141,7 @@ void power_battery_info(void)
 	batt_info_timer_hdl = xTimerCreate("batt_info_timer", TASKDELAY_BATTERY_INFO_TIMER/portTICK_PERIOD_MS, pdTRUE, NULL, battery_info_timer);
 	assert(batt_info_timer_hdl!=NULL);
 	xTimerStart(batt_info_timer_hdl, 0);
+	s_battery_info_scroll = 0U;
 
 	// initial
 	m1_uiView_functions_init(VIEW_MODE_BATTERY_END, view_power_battery_table);
@@ -239,6 +243,7 @@ static void battery_info_timer(TimerHandle_t xTimer)
 static int battery_info_kp_handler(void)
 {
 	S_M1_Buttons_Status this_button_status;
+	uint8_t max_scroll = 2U;
 
 	if(xQueueReceive(button_events_q_hdl, &this_button_status, 0) != pdTRUE)
 		return 1;
@@ -256,6 +261,22 @@ static int battery_info_kp_handler(void)
 		return 0;
 		//break; // Exit and return to the calling task (subfunc_handler_task)
 	} // if ( m1_buttons_status[BUTTON_BACK_KP_ID]==BUTTON_EVENT_CLICK )
+	else if ( this_button_status.event[BUTTON_UP_KP_ID]==BUTTON_EVENT_CLICK )
+	{
+		if (s_battery_info_scroll > 0U)
+		{
+			s_battery_info_scroll--;
+			m1_uiView_display_update(0);
+		}
+	}
+	else if ( this_button_status.event[BUTTON_DOWN_KP_ID]==BUTTON_EVENT_CLICK )
+	{
+		if (s_battery_info_scroll < max_scroll)
+		{
+			s_battery_info_scroll++;
+			m1_uiView_display_update(0);
+		}
+	}
 
 	return 1;
 }
@@ -295,90 +316,107 @@ static void battery_info_gui_destroy(uint8_t param)
 /*============================================================================*/
 static void battery_info_gui_update(uint8_t param)
 {
-	char stat_msg[32], stat_msg2[16];
+	char badge[10];
+	char body_lines[6][24];
 	S_M1_Power_Status_t SystemPowerStatus;
+	float battery_voltage;
+	uint8_t visible_start;
 
 	battery_power_status_get(&SystemPowerStatus);
+	battery_voltage = SystemPowerStatus.battery_voltage / 1000.0f + 0.05f;
 
-	float battery_voltage = SystemPowerStatus.battery_voltage / 1000.0f + 0.05;
+	snprintf(badge, sizeof(badge), "%u%%", SystemPowerStatus.battery_level);
+	snprintf(body_lines[0], sizeof(body_lines[0]), "State: %s", battery_info_charge_state_text(&SystemPowerStatus));
+	if (SystemPowerStatus.stat == 0U)
+	{
+		snprintf(body_lines[1], sizeof(body_lines[1]), "Draw: %dmA", SystemPowerStatus.consumption_current);
+	}
+	else
+	{
+		snprintf(body_lines[1], sizeof(body_lines[1]), "Charge: %umA", SystemPowerStatus.charge_current);
+	}
+	snprintf(body_lines[2], sizeof(body_lines[2]), "Batt: %.1fV", battery_voltage);
+	snprintf(body_lines[3], sizeof(body_lines[3]), "Bus: %.1fV", SystemPowerStatus.charge_voltage);
+	snprintf(body_lines[4], sizeof(body_lines[4]), "Temp: %uC  H:%u%%",
+	         SystemPowerStatus.battery_temp, SystemPowerStatus.battery_health);
+	snprintf(body_lines[5], sizeof(body_lines[5]), "Fault: %s", battery_info_fault_text(&SystemPowerStatus));
 
-	//get_power_status();
-	// stc3115_cli_status();
+	if (s_battery_info_scroll > 2U)
+	{
+		s_battery_info_scroll = 2U;
+	}
+	visible_start = s_battery_info_scroll;
 
     /* Graphic work starts here */
     u8g2_FirstPage(&m1_u8g2); // This call required for page drawing in mode 1
     do
     {
-        int str_id = IDS_USER_DEFINED;
-		if (SystemPowerStatus.fault==0) {
-			if (SystemPowerStatus.stat==0) {
-				str_id = IDS_CONSUMPTION;
-			} else if (SystemPowerStatus.stat==1) {
-				str_id = IDS_PRE_CHARGE;
-			} else if (SystemPowerStatus.stat==2) {
-				str_id = IDS_CHARGING;
-			} else if (SystemPowerStatus.stat==3) {
-				str_id = IDS_COMPLETE;
-			}
-		} else if (SystemPowerStatus.fault==1) {
-			str_id = IDS_INPUT_FAULT;
-		} else if (SystemPowerStatus.fault==2) {
-			str_id = IDS_THERMAL_SHUTDOWN;
-		} else if (SystemPowerStatus.fault==3) {
-			str_id = IDS_SAFETY_TIME_EXP;
-		}
-        sprintf(stat_msg, "%u%%", SystemPowerStatus.battery_level);
-
-        m1_draw_header_bar(&m1_u8g2, "Battery", stat_msg);
-        m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 19);
-
+        m1_draw_header_bar(&m1_u8g2, "Battery", badge);
+        m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
         u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-		if(str_id < IDS_USER_DEFINED)
-			m1_draw_text(&m1_u8g2, 8, 25, 114, res_string(str_id), TEXT_ALIGN_LEFT);
-
-        if (SystemPowerStatus.stat==0) {
-        	sprintf(stat_msg, "%dmA", SystemPowerStatus.consumption_current);
-        	m1_draw_text(&m1_u8g2, 8, 34, 114, stat_msg, TEXT_ALIGN_LEFT);
-        } else {
-			m1_float_to_string(stat_msg, SystemPowerStatus.charge_voltage, 1);
-			strcat(stat_msg, "V ");
-			sprintf(stat_msg2, "%umA", SystemPowerStatus.charge_current);
-			strcat(stat_msg, stat_msg2);
-			m1_draw_text(&m1_u8g2, 8, 34, 114, stat_msg, TEXT_ALIGN_LEFT);
-		}
-
-        u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
-        for(int i = 0; i < 4; ++i) {
-        	int x = i * 32 + 1;
-        	u8g2_DrawFrame(&m1_u8g2, x, 45, 30, 18);
-        }
-
-        u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
-        for(int i = 0; i < 4; ++i) {
-        	int x = i * 32 + 7;
-        	u8g2_DrawBox(&m1_u8g2, x, 41, 18, 8);
-        }
-
-        u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-
-        m1_draw_text(&m1_u8g2, 7, 47,18, res_string(IDS_L), TEXT_ALIGN_CENTER);
-        sprintf(stat_msg, "%u%%", SystemPowerStatus.battery_level);
-        m1_draw_text(&m1_u8g2, 1, 60, 30, stat_msg, TEXT_ALIGN_CENTER);
-
-        m1_draw_text(&m1_u8g2, 39, 47,18, res_string(IDS_T), TEXT_ALIGN_CENTER);
-		sprintf(stat_msg, "%uC", SystemPowerStatus.battery_temp);
-		m1_draw_text(&m1_u8g2, 33, 60, 30, stat_msg, TEXT_ALIGN_CENTER);
-
-	    m1_draw_text(&m1_u8g2, 71, 47,18, res_string(IDS_V), TEXT_ALIGN_CENTER);
-        m1_float_to_string(stat_msg, battery_voltage, 1);
-        strcat(stat_msg, "V");
-        m1_draw_text(&m1_u8g2, 65, 60, 30, stat_msg, TEXT_ALIGN_CENTER);
-
-        m1_draw_text(&m1_u8g2, 103, 47,18, res_string(IDS_H), TEXT_ALIGN_CENTER);
-        sprintf(stat_msg, "%u%%", SystemPowerStatus.battery_health);
-        m1_draw_text(&m1_u8g2, 97, 60, 30, stat_msg, TEXT_ALIGN_CENTER);
-        m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Live", arrowright_8x8);
+        m1_draw_text(&m1_u8g2, 8, 22, 114, body_lines[visible_start], TEXT_ALIGN_LEFT);
+        m1_draw_text(&m1_u8g2, 8, 30, 114, body_lines[visible_start + 1U], TEXT_ALIGN_LEFT);
+        m1_draw_text(&m1_u8g2, 8, 38, 114, body_lines[visible_start + 2U], TEXT_ALIGN_LEFT);
+        m1_draw_text(&m1_u8g2, 8, 46, 114, body_lines[visible_start + 3U], TEXT_ALIGN_LEFT);
+        m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Up/Down", arrowright_8x8);
     } while (u8g2_NextPage(&m1_u8g2));
+}
+
+
+static const char *battery_info_charge_state_text(const S_M1_Power_Status_t *status)
+{
+	if (status == NULL)
+	{
+		return "Unknown";
+	}
+
+	if (status->fault == 1U)
+	{
+		return res_string(IDS_INPUT_FAULT);
+	}
+	if (status->fault == 2U)
+	{
+		return res_string(IDS_THERMAL_SHUTDOWN);
+	}
+	if (status->fault == 3U)
+	{
+		return res_string(IDS_SAFETY_TIME_EXP);
+	}
+
+	switch (status->stat)
+	{
+		case 0:
+			return res_string(IDS_CONSUMPTION);
+		case 1:
+			return res_string(IDS_PRE_CHARGE);
+		case 2:
+			return res_string(IDS_CHARGING);
+		case 3:
+			return res_string(IDS_COMPLETE);
+		default:
+			return "Unknown";
+	}
+}
+
+
+static const char *battery_info_fault_text(const S_M1_Power_Status_t *status)
+{
+	if (status == NULL || status->fault == 0U)
+	{
+		return "None";
+	}
+
+	switch (status->fault)
+	{
+		case 1:
+			return "Input";
+		case 2:
+			return "Thermal";
+		case 3:
+			return "Timer";
+		default:
+			return "Other";
+	}
 }
 
 
@@ -506,8 +544,8 @@ static void power_reboot_gui_update(uint8_t param)
 	m1_draw_header_bar(&m1_u8g2, "Power", "Reboot");
 	m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
 	u8g2_DrawXBMP(&m1_u8g2, 23, 16, 82, 36, m1_device_82x36);
-	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_WARNING_FONT_1B);
-	m1_draw_text(&m1_u8g2, 2, 49, 124, res_string(IDS_REBOOT), TEXT_ALIGN_CENTER);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	m1_draw_text(&m1_u8g2, 2, 48, 124, res_string(IDS_REBOOT), TEXT_ALIGN_CENTER);
 	//u8g2_DrawStr(&m1_u8g2, 35, 49, "REBOOT");
 
 	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
@@ -650,8 +688,8 @@ static void power_shutdown_gui_update(uint8_t param)
 	m1_draw_header_bar(&m1_u8g2, "Power", "Off");
 	m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
 	u8g2_DrawXBMP(&m1_u8g2, 23, 16, 82, 36, m1_device_82x36);
-	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_WARNING_FONT_1B);
-	m1_draw_text(&m1_u8g2, 2, 49, 124, res_string(IDS_POWER_OFF), TEXT_ALIGN_CENTER);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	m1_draw_text(&m1_u8g2, 2, 48, 124, res_string(IDS_POWER_OFF), TEXT_ALIGN_CENTER);
 
 	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
 	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, res_string(IDS_CANCEL), "OK Off", arrowright_8x8);

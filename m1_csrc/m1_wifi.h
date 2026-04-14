@@ -28,6 +28,8 @@ uint8_t wifi_is_connected(void);
 #ifdef M1_APP_WIFI_CONNECT_ENABLE
 void wifi_saved_networks(void);
 void wifi_show_status(void);
+void wifi_show_mode(void);
+void wifi_show_stats(void);
 void wifi_disconnect(void);
 uint8_t wifi_sync_rtc(void);
 void wifi_sync_rtc_tool(void);

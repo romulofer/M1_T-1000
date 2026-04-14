@@ -22,6 +22,15 @@ bool ReadIni(void);
  */
 void ReadCycle(void);
 
+typedef enum
+{
+    NFC_POLL_PROFILE_NORMAL = 0,
+    NFC_POLL_PROFILE_FAST_A,
+} nfc_poll_profile_t;
+
+void nfc_poller_set_profile(nfc_poll_profile_t profile);
+nfc_poll_profile_t nfc_poller_get_profile(void);
+
 /* --- Extern wrappers for static poller helpers --- */
 
 /** Check if SAK indicates a MIFARE Classic variant */

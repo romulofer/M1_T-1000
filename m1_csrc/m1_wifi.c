@@ -80,6 +80,8 @@ static uint16_t wifi_health_count_unmatched(const char lhs[][BSSID_STR_SIZE], ui
 #ifdef M1_APP_WIFI_CONNECT_ENABLE
 void wifi_saved_networks(void);
 void wifi_show_status(void);
+void wifi_show_mode(void);
+void wifi_show_stats(void);
 void wifi_disconnect(void);
 static uint16_t wifi_ap_list_get_index(void);
 static bool wifi_do_connect(const char *ssid, const char *password);
@@ -88,6 +90,7 @@ static bool wifi_scan_ap_connect_selected(const wifi_scanlist_t *ap);
 static void wifi_scan_ap_save_selected(const wifi_scanlist_t *ap);
 static void wifi_scan_ap_show_details(const wifi_scanlist_t *ap);
 static uint8_t wifi_scan_ap_options(const wifi_scanlist_t *ap);
+static void wifi_draw_stats_page(char body_lines[][24], uint8_t scroll);
 #endif
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
@@ -1178,6 +1181,7 @@ static uint8_t wifi_scan_ap_options(const wifi_scanlist_t *ap)
 	const char *save_label;
 	const char *option_label;
 	uint8_t selected = 0;
+	uint8_t visible_start;
 	uint8_t row_y;
 
 	if (ap == NULL)
@@ -1192,7 +1196,8 @@ static uint8_t wifi_scan_ap_options(const wifi_scanlist_t *ap)
 		m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
 		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
 
-		for (uint8_t row = 0; row < WIFI_SCAN_ACT_COUNT; row++)
+		visible_start = (selected >= 2U) ? (uint8_t)(selected - 1U) : 0U;
+		for (uint8_t row = visible_start; row < WIFI_SCAN_ACT_COUNT && row < (visible_start + 2U); row++)
 		{
 			if (row == WIFI_SCAN_ACT_CONNECT)
 				option_label = "Connect";
@@ -1201,16 +1206,19 @@ static uint8_t wifi_scan_ap_options(const wifi_scanlist_t *ap)
 			else
 				option_label = "Details";
 
-			row_y = 24 + (row * 9);
+			row_y = (uint8_t)(30 + ((row - visible_start) * 12U));
 			if (row == selected)
 			{
-				u8g2_DrawBox(&m1_u8g2, 6, row_y - 7, 116, 9);
+				u8g2_DrawBox(&m1_u8g2, 6, row_y - 7, 116, 11);
 				u8g2_SetDrawColor(&m1_u8g2, 0);
 				m1_draw_text(&m1_u8g2, 10, row_y, 108, option_label, TEXT_ALIGN_LEFT);
 				u8g2_SetDrawColor(&m1_u8g2, 1);
 			}
 			else
+			{
+				u8g2_DrawFrame(&m1_u8g2, 6, row_y - 7, 116, 11);
 				m1_draw_text(&m1_u8g2, 10, row_y, 108, option_label, TEXT_ALIGN_LEFT);
+			}
 		}
 
 		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Select", NULL);
@@ -1514,6 +1522,225 @@ void wifi_show_status(void)
 	}
 } // void wifi_show_status(void)
 
+
+/*============================================================================*/
+/**
+  * @brief Show current WiFi mode reported by ESP32 AT firmware
+  */
+/*============================================================================*/
+void wifi_show_mode(void)
+{
+	S_M1_Buttons_Status this_button_status;
+	S_M1_Main_Q_t q_item;
+	BaseType_t ret;
+	ctrl_cmd_t mode_req = CTRL_CMD_DEFAULT_REQ();
+	char line1[24];
+	const char *mode_text = "Unknown";
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
+
+	if ( !wifi_ensure_esp32_ready() )
+	{
+		wifi_display_msg("ESP32", "not ready!");
+		vTaskDelay(pdMS_TO_TICKS(2000));
+		xQueueReset(main_q_hdl);
+		return;
+	}
+
+	wifi_display_busy("Getting mode...");
+	mode_req.cmd_timeout_sec = 8;
+
+	if ( wifi_get_mode(&mode_req) != SUCCESS )
+	{
+		wifi_display_msg("Mode query", "failed");
+		vTaskDelay(pdMS_TO_TICKS(1500));
+		m1_esp32_deinit();
+		xQueueReset(main_q_hdl);
+		return;
+	}
+
+	if ( strcmp(mode_req.u.wifi_ap_config.status, "STA") == 0 )
+		mode_text = "Station";
+	else if ( strcmp(mode_req.u.wifi_ap_config.status, "AP") == 0 )
+		mode_text = "Soft AP";
+	else if ( strcmp(mode_req.u.wifi_ap_config.status, "APSTA") == 0 )
+		mode_text = "AP + STA";
+	else if ( strcmp(mode_req.u.wifi_ap_config.status, "NULL") == 0 )
+		mode_text = "WiFi Off";
+
+	snprintf(line1, sizeof(line1), "Mode: %s", mode_text);
+
+	m1_u8g2_firstpage();
+	m1_draw_header_bar(&m1_u8g2, "WiFi Mode",
+					  mode_req.u.wifi_ap_config.status[0] ? mode_req.u.wifi_ap_config.status : "OK");
+	m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	m1_draw_text(&m1_u8g2, 8, 24, 114, line1, TEXT_ALIGN_LEFT);
+	m1_draw_text(&m1_u8g2, 8, 34, 114, "New ESP32 command", TEXT_ALIGN_LEFT);
+	m1_draw_text(&m1_u8g2, 8, 44, 114, "path is responding", TEXT_ALIGN_LEFT);
+	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Refresh", arrowright_8x8);
+	m1_u8g2_nextpage();
+
+	while (1)
+	{
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret==pdTRUE && q_item.q_evt_type==Q_EVENT_KEYPAD)
+		{
+			ret = xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+			if ( this_button_status.event[BUTTON_BACK_KP_ID]==BUTTON_EVENT_CLICK )
+			{
+				xQueueReset(main_q_hdl);
+				m1_esp32_deinit();
+				return;
+			}
+			if ( this_button_status.event[BUTTON_OK_KP_ID]==BUTTON_EVENT_CLICK
+				|| this_button_status.event[BUTTON_RIGHT_KP_ID]==BUTTON_EVENT_CLICK )
+			{
+				xQueueReset(main_q_hdl);
+				wifi_show_mode();
+				return;
+			}
+		}
+	}
+} // void wifi_show_mode(void)
+
+
+/*============================================================================*/
+/**
+  * @brief Show extended WiFi stats from custom ESP32 AT command
+  */
+/*============================================================================*/
+void wifi_show_stats(void)
+{
+	S_M1_Buttons_Status this_button_status;
+	S_M1_Main_Q_t q_item;
+	BaseType_t ret;
+	ctrl_cmd_t stats_req;
+	char body_lines[6][24];
+	uint8_t scroll = 0U;
+	bool needs_query = true;
+	bool needs_redraw = true;
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
+
+	while (1)
+	{
+		if (needs_query)
+		{
+			memset(&stats_req, 0, sizeof(stats_req));
+			stats_req.msg_type = CTRL_REQ;
+			stats_req.cmd_timeout_sec = 8;
+
+			if ( !wifi_ensure_esp32_ready() )
+			{
+				wifi_display_msg("ESP32", "not ready!");
+				vTaskDelay(pdMS_TO_TICKS(2000));
+				xQueueReset(main_q_hdl);
+				return;
+			}
+
+			wifi_display_busy("Getting stats...");
+			if ( wifi_get_stats(&stats_req) != SUCCESS )
+			{
+				wifi_display_msg("Stats query", "failed");
+				vTaskDelay(pdMS_TO_TICKS(1500));
+				m1_esp32_deinit();
+				xQueueReset(main_q_hdl);
+				return;
+			}
+
+			snprintf(body_lines[0], sizeof(body_lines[0]), "Link: %s",
+			         (stats_req.u.wifi_ap_config.band_mode != 0) ? "Connected" : "Idle");
+			snprintf(body_lines[1], sizeof(body_lines[1]), "Mode: %s",
+			         stats_req.u.wifi_ap_config.status[0] ? stats_req.u.wifi_ap_config.status : "Unknown");
+			snprintf(body_lines[2], sizeof(body_lines[2]), "RSSI: %d dBm",
+			         stats_req.u.wifi_ap_config.rssi);
+			snprintf(body_lines[3], sizeof(body_lines[3]), "Channel: %d",
+			         stats_req.u.wifi_ap_config.channel);
+			snprintf(body_lines[4], sizeof(body_lines[4]), "IP: %s",
+			         stats_req.u.wifi_ap_config.out_mac[0] ? stats_req.u.wifi_ap_config.out_mac : "0.0.0.0");
+			snprintf(body_lines[5], sizeof(body_lines[5]), "BSSID:%s",
+			         stats_req.u.wifi_ap_config.bssid[0] ?
+			             (const char *)stats_req.u.wifi_ap_config.bssid : "none");
+
+			if (scroll > 2U)
+			{
+				scroll = 2U;
+			}
+			needs_query = false;
+			needs_redraw = true;
+		}
+
+		if (needs_redraw)
+		{
+			wifi_draw_stats_page(body_lines, scroll);
+			needs_redraw = false;
+		}
+
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret==pdTRUE && q_item.q_evt_type==Q_EVENT_KEYPAD)
+		{
+			ret = xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+			if ( this_button_status.event[BUTTON_BACK_KP_ID]==BUTTON_EVENT_CLICK )
+			{
+				xQueueReset(main_q_hdl);
+				m1_esp32_deinit();
+				return;
+			}
+			if ( this_button_status.event[BUTTON_UP_KP_ID]==BUTTON_EVENT_CLICK )
+			{
+				if (scroll > 0U)
+				{
+					scroll--;
+					needs_redraw = true;
+				}
+			}
+			if ( this_button_status.event[BUTTON_DOWN_KP_ID]==BUTTON_EVENT_CLICK )
+			{
+				if (scroll < 2U)
+				{
+					scroll++;
+					needs_redraw = true;
+				}
+			}
+			if ( this_button_status.event[BUTTON_OK_KP_ID]==BUTTON_EVENT_CLICK
+				|| this_button_status.event[BUTTON_RIGHT_KP_ID]==BUTTON_EVENT_CLICK )
+			{
+				needs_query = true;
+			}
+		}
+	}
+} // void wifi_show_stats(void)
+
+
+/*============================================================================*/
+/**
+  * @brief Draw cached WiFi stats without re-querying the ESP32
+  */
+/*============================================================================*/
+static void wifi_draw_stats_page(char body_lines[][24], uint8_t scroll)
+{
+	char badge[16];
+
+	if (scroll > 2U)
+	{
+		scroll = 2U;
+	}
+
+	snprintf(badge, sizeof(badge), "%u-%u/6",
+	         (unsigned)(scroll + 1U), (unsigned)(scroll + 4U));
+
+	m1_u8g2_firstpage();
+	m1_draw_header_bar(&m1_u8g2, "WiFi Stats", badge);
+	m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	m1_draw_text(&m1_u8g2, 8, 22, 114, body_lines[scroll], TEXT_ALIGN_LEFT);
+	m1_draw_text(&m1_u8g2, 8, 30, 114, body_lines[scroll + 1U], TEXT_ALIGN_LEFT);
+	m1_draw_text(&m1_u8g2, 8, 38, 114, body_lines[scroll + 2U], TEXT_ALIGN_LEFT);
+	m1_draw_text(&m1_u8g2, 8, 46, 114, body_lines[scroll + 3U], TEXT_ALIGN_LEFT);
+	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Refresh", arrowright_8x8);
+	m1_u8g2_nextpage();
+}
 
 
 /*============================================================================*/

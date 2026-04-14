@@ -24,8 +24,9 @@
 
 #define FILE_TOOLS_ITEM_COUNT  4U
 #define FILE_TOOLS_POLL_MS     120U
-#define FILE_TOOLS_ROW_HEIGHT  6U
-#define FILE_TOOLS_LIST_Y      27U
+#define FILE_TOOLS_VISIBLE_ITEMS 2U
+#define FILE_TOOLS_ROW_HEIGHT    12U
+#define FILE_TOOLS_LIST_Y        38U
 
 //************************** S T R U C T U R E S *******************************/
 
@@ -58,26 +59,30 @@ static void file_tools_draw(uint8_t sel)
     char badge[12];
     char status_text[24];
     char capacity_text[20];
+    uint8_t visible_start;
     uint8_t y = FILE_TOOLS_LIST_Y;
 
     snprintf(badge, sizeof(badge), "%u/%u", (unsigned)(sel + 1U), (unsigned)FILE_TOOLS_ITEM_COUNT);
     file_tools_status_text(status_text, sizeof(status_text), capacity_text, sizeof(capacity_text));
+    visible_start = (sel >= FILE_TOOLS_VISIBLE_ITEMS) ?
+        (uint8_t)(sel - FILE_TOOLS_VISIBLE_ITEMS + 1U) : 0U;
 
     m1_u8g2_firstpage();
     m1_draw_header_bar(&m1_u8g2, "File Tools", badge);
     m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 36);
 
     u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-    m1_draw_text(&m1_u8g2, 7, 22, 74, status_text, TEXT_ALIGN_LEFT);
-    m1_draw_text(&m1_u8g2, 83, 22, 36, capacity_text, TEXT_ALIGN_RIGHT);
-    u8g2_DrawHLine(&m1_u8g2, 6, 24, 114);
+    m1_draw_text(&m1_u8g2, 8, 22, 108, status_text, TEXT_ALIGN_LEFT);
+    m1_draw_text(&m1_u8g2, 8, 30, 108, capacity_text, TEXT_ALIGN_LEFT);
 
     u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
-    for (uint8_t i = 0; i < FILE_TOOLS_ITEM_COUNT; i++)
+    for (uint8_t vi = 0; vi < FILE_TOOLS_VISIBLE_ITEMS && (visible_start + vi) < FILE_TOOLS_ITEM_COUNT; vi++)
     {
+        uint8_t i = (uint8_t)(visible_start + vi);
+
         if (i == sel)
         {
-            u8g2_DrawBox(&m1_u8g2, 6, (u8g2_uint_t)(y - 5U), 114, 7);
+            u8g2_DrawBox(&m1_u8g2, 6, (u8g2_uint_t)(y - 7U), 114, 11);
             u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
             u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_B);
             m1_draw_text(&m1_u8g2, 10, y, 108, file_tools_labels[i], TEXT_ALIGN_LEFT);
@@ -86,7 +91,7 @@ static void file_tools_draw(uint8_t sel)
         }
         else
         {
-            u8g2_DrawFrame(&m1_u8g2, 6, (u8g2_uint_t)(y - 5U), 114, 7);
+            u8g2_DrawFrame(&m1_u8g2, 6, (u8g2_uint_t)(y - 7U), 114, 11);
             m1_draw_text(&m1_u8g2, 10, y, 108, file_tools_labels[i], TEXT_ALIGN_LEFT);
         }
         y = (uint8_t)(y + FILE_TOOLS_ROW_HEIGHT);
