@@ -33,6 +33,19 @@ uint8_t wifi_disconnect_ap(ctrl_cmd_t *app_req);
 uint8_t wifi_get_ip(ctrl_cmd_t *app_req);
 #endif
 
+#ifdef M1_APP_WIFI_OFFENSIVE_ENABLE
+uint8_t wifi_esp_deauth_start(const char *bssid, uint8_t channel, const char *station_mac, uint16_t count);
+uint8_t wifi_esp_deauth_stop(void);
+uint8_t wifi_esp_beacon_start(const char *const *ssids, uint8_t ssid_count, uint8_t channel);
+uint8_t wifi_esp_beacon_stop(void);
+uint8_t wifi_esp_probe_start(uint8_t channel, uint16_t duration_sec);
+uint8_t wifi_esp_probe_stop(void);
+uint8_t wifi_esp_pmkid_capture(const char *bssid, uint8_t channel);
+uint8_t wifi_esp_karma_start(uint8_t channel);
+uint8_t wifi_esp_karma_stop(void);
+uint8_t wifi_esp_hscap_start(const char *bssid, uint8_t channel, uint16_t deauth_count);
+#endif
+
 #ifdef M1_APP_BADBT_ENABLE
 uint8_t ble_hid_init(ctrl_cmd_t *app_req, const char *device_name);
 uint8_t ble_hid_deinit(ctrl_cmd_t *app_req);

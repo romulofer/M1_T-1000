@@ -1946,3 +1946,192 @@ uint8_t wifi_get_ip(ctrl_cmd_t *app_req)
 } // uint8_t wifi_get_ip(ctrl_cmd_t *app_req)
 
 #endif /* M1_APP_WIFI_CONNECT_ENABLE */
+
+#ifdef M1_APP_WIFI_OFFENSIVE_ENABLE
+
+static uint8_t wifi_esp_run_simple_cmd(const char *cmd, int timeout_sec, char *resp, size_t resp_len)
+{
+	uint8_t ret;
+
+	if (cmd == NULL || resp == NULL || resp_len == 0U)
+	{
+		return ERROR;
+	}
+
+	resp[0] = '\0';
+	ret = spi_AT_send_recv(cmd, resp, (int)resp_len, timeout_sec);
+	if (ret != SUCCESS)
+	{
+		return ERROR;
+	}
+
+	return (strstr(resp, ESP32C6_AT_RES_OK) != NULL) ? SUCCESS : ERROR;
+}
+
+uint8_t wifi_esp_deauth_start(const char *bssid, uint8_t channel, const char *station_mac, uint16_t count)
+{
+	char cmd[128];
+	char resp[256];
+
+	if (bssid == NULL || bssid[0] == '\0' || channel < 1U || channel > 14U)
+	{
+		return ERROR;
+	}
+
+	if (station_mac != NULL && station_mac[0] != '\0')
+	{
+		snprintf(cmd, sizeof(cmd), "%s\"%s\",%u,\"%s\",%u\r\n",
+				 ESP32C6_AT_REQ_DEAUTH, bssid, channel, station_mac, count);
+	}
+	else if (count > 0U)
+	{
+		snprintf(cmd, sizeof(cmd), "%s\"%s\",%u,\"ff:ff:ff:ff:ff:ff\",%u\r\n",
+				 ESP32C6_AT_REQ_DEAUTH, bssid, channel, count);
+	}
+	else
+	{
+		snprintf(cmd, sizeof(cmd), "%s\"%s\",%u\r\n",
+				 ESP32C6_AT_REQ_DEAUTH, bssid, channel);
+	}
+
+	return wifi_esp_run_simple_cmd(cmd, 5, resp, sizeof(resp));
+}
+
+uint8_t wifi_esp_deauth_stop(void)
+{
+	char resp[256];
+
+	if (wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_DEAUTH_STOP, ""), 5, resp, sizeof(resp)) != SUCCESS)
+	{
+		return ERROR;
+	}
+
+	return wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_MONITOR, "0"), 5, resp, sizeof(resp));
+}
+
+uint8_t wifi_esp_beacon_start(const char *const *ssids, uint8_t ssid_count, uint8_t channel)
+{
+	char cmd[384];
+	char resp[256];
+	int pos;
+	uint8_t i;
+
+	if (ssids == NULL || ssid_count == 0U || channel < 1U || channel > 14U)
+	{
+		return ERROR;
+	}
+
+	snprintf(cmd, sizeof(cmd), "%s1,%u\r\n", ESP32C6_AT_REQ_MONITOR, channel);
+	if (wifi_esp_run_simple_cmd(cmd, 5, resp, sizeof(resp)) != SUCCESS)
+	{
+		return ERROR;
+	}
+
+	pos = snprintf(cmd, sizeof(cmd), "%s1", ESP32C6_AT_REQ_BEACON);
+	for (i = 0U; i < ssid_count && pos < (int)(sizeof(cmd) - 4U); i++)
+	{
+		if (ssids[i] == NULL || ssids[i][0] == '\0')
+		{
+			continue;
+		}
+		pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, ",\"%s\"", ssids[i]);
+	}
+	snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, "\r\n");
+
+	return wifi_esp_run_simple_cmd(cmd, 5, resp, sizeof(resp));
+}
+
+uint8_t wifi_esp_beacon_stop(void)
+{
+	char resp[256];
+
+	if (wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_BEACON, "0"), 5, resp, sizeof(resp)) != SUCCESS)
+	{
+		return ERROR;
+	}
+
+	return wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_MONITOR, "0"), 5, resp, sizeof(resp));
+}
+
+uint8_t wifi_esp_probe_start(uint8_t channel, uint16_t duration_sec)
+{
+	char cmd[96];
+	char resp[256];
+
+	if (channel < 1U || channel > 14U)
+	{
+		return ERROR;
+	}
+
+	snprintf(cmd, sizeof(cmd), "%s1,%u,%u\r\n", ESP32C6_AT_REQ_PROBE, channel, duration_sec);
+	return wifi_esp_run_simple_cmd(cmd, 5, resp, sizeof(resp));
+}
+
+uint8_t wifi_esp_probe_stop(void)
+{
+	char resp[256];
+
+	if (wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_PROBE, "0"), 5, resp, sizeof(resp)) != SUCCESS)
+	{
+		return ERROR;
+	}
+
+	return wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_MONITOR, "0"), 5, resp, sizeof(resp));
+}
+
+uint8_t wifi_esp_pmkid_capture(const char *bssid, uint8_t channel)
+{
+	char cmd[96];
+	char resp[512];
+
+	if (bssid == NULL || bssid[0] == '\0' || channel < 1U || channel > 14U)
+	{
+		return ERROR;
+	}
+
+	snprintf(cmd, sizeof(cmd), "%s\"%s\",%u\r\n", ESP32C6_AT_REQ_PMKID, bssid, channel);
+	return wifi_esp_run_simple_cmd(cmd, 20, resp, sizeof(resp));
+}
+
+uint8_t wifi_esp_karma_start(uint8_t channel)
+{
+	char cmd[64];
+	char resp[256];
+
+	if (channel < 1U || channel > 14U)
+	{
+		return ERROR;
+	}
+
+	snprintf(cmd, sizeof(cmd), "%s1,%u\r\n", ESP32C6_AT_REQ_KARMA, channel);
+	return wifi_esp_run_simple_cmd(cmd, 5, resp, sizeof(resp));
+}
+
+uint8_t wifi_esp_karma_stop(void)
+{
+	char resp[256];
+
+	if (wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_KARMA, "0"), 5, resp, sizeof(resp)) != SUCCESS)
+	{
+		return ERROR;
+	}
+
+	return wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_MONITOR, "0"), 5, resp, sizeof(resp));
+}
+
+uint8_t wifi_esp_hscap_start(const char *bssid, uint8_t channel, uint16_t deauth_count)
+{
+	char cmd[96];
+	char resp[1024];
+
+	if (bssid == NULL || bssid[0] == '\0' || channel < 1U || channel > 14U)
+	{
+		return ERROR;
+	}
+
+	snprintf(cmd, sizeof(cmd), "%s\"%s\",%u,%u\r\n",
+			 ESP32C6_AT_REQ_HSCAP, bssid, channel, deauth_count);
+	return wifi_esp_run_simple_cmd(cmd, 35, resp, sizeof(resp));
+}
+
+#endif /* M1_APP_WIFI_OFFENSIVE_ENABLE */
