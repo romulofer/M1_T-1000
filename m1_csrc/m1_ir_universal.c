@@ -252,6 +252,15 @@ static void dashboard_screen(void)
 
 				if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
 				{
+					/* Remote Mode (landscape) is transient to this app — undo it
+					 * before returning so the menu isn't left rotated. A persistent
+					 * SOUTHPAW orientation from settings is left untouched. */
+					if (m1_screen_orientation == M1_ORIENT_REMOTE)
+					{
+						m1_screen_orientation = M1_ORIENT_NORMAL;
+						m1_southpaw_mode = 0;
+						u8g2_SetDisplayRotation(&m1_u8g2, U8G2_R2);
+					}
 					xQueueReset(main_q_hdl);
 					break; /* Exit to caller */
 				}
