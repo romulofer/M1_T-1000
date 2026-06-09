@@ -127,6 +127,30 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev);
 extern uint8_t g_nfc_dump_buf[NFC_DUMP_BUF_SIZE];
 extern uint8_t g_nfc_valid_bits[NFC_VALID_BITS_SIZE];
 
+/* Recovered MIFARE Classic keys from the most recent dictionary read.
+ * Real card dumps read the sector-trailer keys back as zero, so the working
+ * dictionary key is the only record of what actually opened each sector. */
+#define MFC_FOUND_KEYS_MAX  40   /* MFC 4K = 40 sectors */
+typedef struct {
+    uint8_t key[MFC_KEY_LEN];
+    char    type;   /* 'A', 'B', or 0 when not recovered */
+} mfc_found_key_t;
+static mfc_found_key_t g_mfc_found_keys[MFC_FOUND_KEYS_MAX];
+static uint16_t        g_mfc_found_total = 0;   /* sectors attempted */
+static uint16_t        g_mfc_found_count = 0;   /* sectors recovered */
+
+uint16_t nfc_mfc_keys_total(void) { return g_mfc_found_total; }
+uint16_t nfc_mfc_keys_found(void) { return g_mfc_found_count; }
+
+bool nfc_mfc_key_get(uint16_t sector, char *type_out, uint8_t key_out[6])
+{
+    if (sector >= MFC_FOUND_KEYS_MAX || g_mfc_found_keys[sector].type == 0)
+        return false;
+    if (type_out) *type_out = g_mfc_found_keys[sector].type;
+    if (key_out)  memcpy(key_out, g_mfc_found_keys[sector].key, MFC_KEY_LEN);
+    return true;
+}
+
 /*
  ******************************************************************************
  * LOCAL VARIABLES
@@ -1344,6 +1368,11 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev)
     memset(g_nfc_dump_buf, 0x00, NFC_DUMP_BUF_SIZE);
     memset(g_nfc_valid_bits, 0x00, NFC_VALID_BITS_SIZE);
 
+    /* Reset the recovered-key report for this read */
+    memset(g_mfc_found_keys, 0x00, sizeof(g_mfc_found_keys));
+    g_mfc_found_total = (totalSectors < MFC_FOUND_KEYS_MAX) ? totalSectors : MFC_FOUND_KEYS_MAX;
+    g_mfc_found_count = 0;
+
     platformLog("[MFC] start dump: sectors=%u blocks=%u\r\n", totalSectors, totalBlocks);
 
     uint16_t lastSeenBlock  = 0;
@@ -1374,6 +1403,10 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev)
             /* Try Key A */
             if (mfc_auth(&cstate, uid4, (uint8_t)firstBlock, MFC_AUTH_CMD_A, key)) {
                 sectorAuthed = true;
+                if (sector < MFC_FOUND_KEYS_MAX) {
+                    memcpy(g_mfc_found_keys[sector].key, key, MFC_KEY_LEN);
+                    g_mfc_found_keys[sector].type = 'A';
+                }
                 platformLog("[MFC] sector %u auth OK KeyA\r\n", sector);
                 break;
             }
@@ -1381,6 +1414,10 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev)
             /* Try Key B */
             if (mfc_auth(&cstate, uid4, (uint8_t)firstBlock, MFC_AUTH_CMD_B, key)) {
                 sectorAuthed = true;
+                if (sector < MFC_FOUND_KEYS_MAX) {
+                    memcpy(g_mfc_found_keys[sector].key, key, MFC_KEY_LEN);
+                    g_mfc_found_keys[sector].type = 'B';
+                }
                 platformLog("[MFC] sector %u auth OK KeyB\r\n", sector);
                 break;
             }
@@ -1392,6 +1429,8 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev)
         }
 
         successSectors++;
+        if (sector < MFC_FOUND_KEYS_MAX)
+            g_mfc_found_count++;
 
         /* Read all blocks of authenticated sector */
         for (uint16_t bi = 0; bi < blocksInSector; bi++) {

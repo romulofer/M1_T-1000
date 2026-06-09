@@ -2,11 +2,11 @@
 
 # M1 T-1000 Firmware
 
-T-1000 firmware for the [Monstatek M1](https://monstatek.com) multi-tool device, built from the existing enhanced firmware base and evolving toward a new shell and architecture.
+**T-1000** is a custom, feature-expanded firmware for the [Monstatek M1](https://monstatek.com) handheld multi-tool — Sub-GHz, NFC, RFID, Infrared, WiFi, Bluetooth, and BadUSB in one device — with its own UI, tooling, and hardware-mod support layered on top of the M1 platform.
 
-> **This is a community project and is not affiliated with or endorsed by Monstatek.**
+> **This is an independent community project and is not affiliated with or endorsed by Monstatek.**
 
-## What's New in C3
+## Features
 
 ### Flipper Zero Compatibility
 - Import and use Flipper Zero `.sub`, `.rfid`, `.nfc`, and `.ir` files directly
@@ -30,6 +30,7 @@ T-1000 firmware for the [Monstatek M1](https://monstatek.com) multi-tool device,
 - **Maximum Power Carrier** — 40% modulation (ST25R3916 hardware maximum)
 - **Long Duration Tests** — carrier transmissions up to 60 seconds
 - **False Positive Prevention** — validation checks in scan functions
+- **Recovered-Key Report** — view recovered keys (A/B) on screen after dictionary scans and automatically save to `NFC/<UID>_keys.txt`
 
 ### RFID Enhancements
 - **20+ protocol decoders** — HID Generic, Indala, AWID, Pyramid, Paradox, IOProx, FDX-A/B, Viking, Electra, Gallagher, Jablotron, PAC/Stanley, and more
@@ -43,6 +44,7 @@ T-1000 firmware for the [Monstatek M1](https://monstatek.com) multi-tool device,
 - **Universal Remote Database** — pre-built remotes for Samsung, LG, Sony, Vizio, Bose, Denon, and more (see [`ir_database/`](ir_database/))
 - **Learn & Save** — record IR signals and save to SD card
 - **Import** Flipper Zero `.ir` files
+- **Universal Power-Off (TV-B-Gone)** — blast TV power codes to turn off nearby televisions with progress display and abort support
 
 ### BadUSB
 - **DuckyScript interpreter** — run keystroke injection scripts from SD card
@@ -103,6 +105,8 @@ T-1000 firmware for the [Monstatek M1](https://monstatek.com) multi-tool device,
 - **ESP32 Readiness Checks** — ensure WiFi coprocessor is ready before sending commands
 - **SPI Retry Logic** — automatic retry for transient SPI communication failures
 - **Attack List Integration** — auto-fill BSSID/channel in offensive tools
+- **RGB Backlight Mod (SK6805)** — control menu with brightness, color presets, custom RGB editor, and effects (Breathe, Color Cycle, Strobe, Fade)
+- **Reactive Backlight** — drives the RGB mod from live system state: battery level (green/amber/red), charging pulse (blue), and notification flash (white)
 
 ## Companion App
 

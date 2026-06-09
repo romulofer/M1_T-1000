@@ -18,9 +18,12 @@
 #include <stdbool.h>
 #include <string.h>
 #include "stm32h5xx_hal.h"
+#include "FreeRTOS.h"
+#include "timers.h"
 #include "m1_rgb_backlight.h"
 #include "m1_io_defs.h"
 #include "m1_display.h"
+#include "battery.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -79,15 +82,27 @@ static const char *rgb_mode_names[RGB_MODE_COUNT] = {
 };
 
 static const char *rgb_effect_names[RGB_EFFECT_COUNT] = {
-    "Static", "Breathe", "Color Cycle"
+    "Static", "Breathe", "Color Cycle", "Strobe", "Fade"
 };
+
+/* User-defined custom color (used when g_rgb_mode == RGB_MODE_CUSTOM) */
+static rgb_color_t g_custom_color = {255, 255, 255};
 
 /* Breathe state */
 static uint8_t  g_breathe_step = 0;
 static int8_t   g_breathe_dir  = 1;
 
-/* Color cycle state */
+/* Color cycle / fade state */
 static uint8_t  g_cycle_hue = 0;
+
+/* Strobe state */
+static uint8_t  g_strobe_phase = 0;
+
+/* Reactive lighting state */
+static bool          g_rgb_reactive = false;
+static TimerHandle_t g_reactive_timer = NULL;
+static volatile uint8_t g_flash_ticks = 0;   /* >0 => render a white flash */
+static uint8_t       g_pulse_phase = 0;       /* charging-pulse brightness phase */
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
 
@@ -255,7 +270,8 @@ static void rgb_bl_apply_mode_colors(void)
         return;
     }
 
-    const rgb_color_t *c = &rgb_mode_colors[g_rgb_mode];
+    const rgb_color_t *c = (g_rgb_mode == RGB_MODE_CUSTOM) ?
+        &g_custom_color : &rgb_mode_colors[g_rgb_mode];
     for (uint8_t i = 0; i < RGB_BL_LED_COUNT; i++)
     {
         g_rgb_leds[i] = *c;
@@ -360,6 +376,11 @@ void rgb_bl_set_effect(rgb_bl_effect_t effect)
         g_breathe_step = 0;
         g_breathe_dir = 1;
         g_cycle_hue = 0;
+        g_strobe_phase = 0;
+        /* Restore the mode's base color so a previous effect's transient
+         * frame (e.g. strobe "off") doesn't linger when switching effects. */
+        rgb_bl_apply_mode_colors();
+        if (g_rgb_on) rgb_bl_write_leds();
     }
 }
 
@@ -373,14 +394,23 @@ void rgb_bl_set_brightness(uint8_t brightness)
 
 void rgb_bl_set_custom(uint8_t r, uint8_t g, uint8_t b)
 {
+    g_custom_color.r = r;
+    g_custom_color.g = g;
+    g_custom_color.b = b;
     g_rgb_mode = RGB_MODE_CUSTOM;
     for (uint8_t i = 0; i < RGB_BL_LED_COUNT; i++)
     {
-        g_rgb_leds[i].r = r;
-        g_rgb_leds[i].g = g;
-        g_rgb_leds[i].b = b;
+        g_rgb_leds[i] = g_custom_color;
     }
     if (g_rgb_on) rgb_bl_write_leds();
+}
+
+
+void rgb_bl_get_custom(uint8_t *r, uint8_t *g, uint8_t *b)
+{
+    if (r != NULL) *r = g_custom_color.r;
+    if (g != NULL) *g = g_custom_color.g;
+    if (b != NULL) *b = g_custom_color.b;
 }
 
 
@@ -402,7 +432,9 @@ void rgb_bl_off(void)
 
 void rgb_bl_update(void)
 {
-    if (!g_rgb_on) return;
+    /* When reactive lighting owns the LEDs, the background timer drives them —
+     * skip the menu's effect animation so the two don't fight. */
+    if (!g_rgb_on || g_rgb_reactive) return;
 
     switch (g_rgb_effect)
     {
@@ -421,8 +453,55 @@ void rgb_bl_update(void)
         case RGB_EFFECT_CYCLE:
         {
             g_cycle_hue += 1U;
+            if (g_rgb_mode == RGB_MODE_RAINBOW)
+            {
+                /* Rainbow already maps hue per-LED — just advance it. */
+                rgb_bl_apply_mode_colors();
+            }
+            else
+            {
+                /* Sweep every LED through the full color wheel together,
+                 * independent of the selected solid color. */
+                uint8_t r = rgb_hue_to_r(g_cycle_hue);
+                uint8_t g = rgb_hue_to_g(g_cycle_hue);
+                uint8_t b = rgb_hue_to_b(g_cycle_hue);
+                for (uint8_t i = 0; i < RGB_BL_LED_COUNT; i++)
+                {
+                    g_rgb_leds[i].r = r;
+                    g_rgb_leds[i].g = g;
+                    g_rgb_leds[i].b = b;
+                }
+            }
+            rgb_bl_write_leds();
+            break;
+        }
+
+        case RGB_EFFECT_STROBE:
+        {
+            /* Hard blink: color fully on for one frame, off for three. */
+            g_strobe_phase = (uint8_t)((g_strobe_phase + 1U) & 0x03U);
+            if (g_strobe_phase == 0U)
+            {
+                rgb_bl_apply_mode_colors();
+            }
+            else
+            {
+                memset(g_rgb_leds, 0, sizeof(g_rgb_leds));
+            }
+            rgb_bl_write_leds();
+            break;
+        }
+
+        case RGB_EFFECT_FADE:
+        {
+            /* Sawtooth fade-in: ramp brightness 0 -> max, then snap to 0.
+             * Distinct from Breathe's symmetric in/out. */
+            g_breathe_step += 8U;
+            uint8_t saved = g_rgb_brightness;
+            g_rgb_brightness = g_breathe_step;
             rgb_bl_apply_mode_colors();
             rgb_bl_write_leds();
+            g_rgb_brightness = saved;
             break;
         }
 
@@ -446,6 +525,128 @@ const char *rgb_bl_mode_name(rgb_bl_mode_t mode)
 const char *rgb_bl_effect_name(rgb_bl_effect_t effect)
 {
     return (effect < RGB_EFFECT_COUNT) ? rgb_effect_names[effect] : "?";
+}
+
+/*============================================================================*/
+/* Reactive lighting — battery/charge driven color on a background timer       */
+/*============================================================================*/
+
+/*============================================================================*/
+/**
+  * @brief  Background timer callback: paint the LEDs from live battery state.
+  *         Discharging -> green/amber/red by level; charging -> blue pulse;
+  *         full -> green; a queued notification shows a brief white flash.
+  */
+/*============================================================================*/
+static void rgb_reactive_timer_cb(TimerHandle_t xt)
+{
+    extern uint8_t m1_backlight_type;
+    S_M1_Power_Status_t st;
+    uint8_t r, g, b;
+    bool charging;
+
+    (void)xt;
+
+    if (!g_rgb_reactive || m1_backlight_type != 1 || !g_rgb_on)
+        return;
+
+    battery_power_status_get(&st);
+    charging = (st.stat == 1U || st.stat == 2U);   /* pre-charge or fast charge */
+
+    if (g_flash_ticks > 0U)
+    {
+        g_flash_ticks--;
+        r = 255; g = 255; b = 255;                  /* notification flash */
+    }
+    else if (charging)
+    {
+        r = 0;   g = 80;  b = 255;                   /* charging = blue */
+    }
+    else if (st.stat == 3U)
+    {
+        r = 0;   g = 255; b = 0;                     /* fully charged = green */
+    }
+    else if (st.battery_level >= 60U)
+    {
+        r = 0;   g = 255; b = 0;                     /* healthy */
+    }
+    else if (st.battery_level >= 30U)
+    {
+        r = 255; g = 120; b = 0;                     /* getting low = amber */
+    }
+    else
+    {
+        r = 255; g = 0;   b = 0;                     /* critical = red */
+    }
+
+    for (uint8_t i = 0; i < RGB_BL_LED_COUNT; i++)
+    {
+        g_rgb_leds[i].r = r;
+        g_rgb_leds[i].g = g;
+        g_rgb_leds[i].b = b;
+    }
+
+    /* Smooth brightness pulse while charging (skipped during a flash). */
+    if (charging && g_flash_ticks == 0U)
+    {
+        uint8_t tri;
+        uint8_t pulse;
+        uint8_t saved = g_rgb_brightness;
+
+        g_pulse_phase = (uint8_t)((g_pulse_phase + 1U) % 20U);
+        tri   = (g_pulse_phase < 10U) ? g_pulse_phase : (uint8_t)(20U - g_pulse_phase); /* 0..10 */
+        pulse = (uint8_t)(40U + tri * 21U);          /* 40..250 */
+
+        g_rgb_brightness = pulse;
+        rgb_bl_write_leds();
+        g_rgb_brightness = saved;
+    }
+    else
+    {
+        rgb_bl_write_leds();
+    }
+}
+
+void rgb_bl_reactive_set(uint8_t enable)
+{
+    if (enable)
+    {
+        g_rgb_reactive = true;
+        g_flash_ticks = 0;
+        g_pulse_phase = 0;
+        if (g_reactive_timer == NULL)
+        {
+            g_reactive_timer = xTimerCreate("rgb_react", pdMS_TO_TICKS(200),
+                                            pdTRUE, NULL, rgb_reactive_timer_cb);
+        }
+        if (g_reactive_timer != NULL)
+            xTimerStart(g_reactive_timer, 0);
+    }
+    else
+    {
+        g_rgb_reactive = false;
+        if (g_reactive_timer != NULL)
+            xTimerStop(g_reactive_timer, 0);
+        /* Restore the user's selected static color/effect base. */
+        if (g_rgb_on)
+        {
+            rgb_bl_apply_mode_colors();
+            rgb_bl_write_leds();
+        }
+    }
+}
+
+uint8_t rgb_bl_reactive_is_on(void)
+{
+    return g_rgb_reactive ? 1U : 0U;
+}
+
+void rgb_bl_notify_flash(void)
+{
+    /* Cheap + safe to call from any task (e.g. the buzzer notification path).
+     * The timer renders the flash on its next tick; no-op when not reactive. */
+    if (g_rgb_reactive)
+        g_flash_ticks = 2U;   /* ~2 * 200ms = 400ms flash */
 }
 
 /*============================================================================*/

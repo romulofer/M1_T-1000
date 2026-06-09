@@ -68,8 +68,8 @@
 #define MAIN_MENU_TEXT_FRAME_LEFT_POS_X		48
 
 #define MAIN_MENU_ICON_LEFT_POS_X			50
-#define MAIN_MENU_ICON_WIDTH				14
-#define MAIN_MENU_ICON_HEIGHT				14
+#define MAIN_MENU_ICON_WIDTH				11
+#define MAIN_MENU_ICON_HEIGHT				11
 
 #define MAIN_MENU_LOGO_TOP_POS_Y			24
 #define MAIN_MENU_LOGO_LEFT_POS_X			0
@@ -595,7 +595,7 @@ static void m1_gui_draw_main_menu_panel(void)
 	u8g2_DrawXBMP(&m1_u8g2, 1, 18, 40, 32, m1_logo_40x32);
 	u8g2_DrawHLine(&m1_u8g2, 6, 52, 30);
 	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	m1_draw_text(&m1_u8g2, 0, 60, MENU_MAIN_PANEL_W, "M1", TEXT_ALIGN_CENTER);
+	m1_draw_text(&m1_u8g2, 0, 59, MENU_MAIN_PANEL_W, "M1", TEXT_ALIGN_CENTER);
 }
 
 

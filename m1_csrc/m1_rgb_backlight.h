@@ -37,12 +37,16 @@ typedef enum
     RGB_MODE_COUNT
 } rgb_bl_mode_t;
 
-/* Effect enumeration */
+/* Effect enumeration.
+ * New effects must be appended before RGB_EFFECT_COUNT so the persisted
+ * "rgb_effect" index in settings.cfg stays stable across firmware updates. */
 typedef enum
 {
     RGB_EFFECT_STATIC = 0,
     RGB_EFFECT_BREATHE,
     RGB_EFFECT_CYCLE,
+    RGB_EFFECT_STROBE,
+    RGB_EFFECT_FADE,
     RGB_EFFECT_COUNT
 } rgb_bl_effect_t;
 
@@ -54,6 +58,7 @@ void rgb_bl_set_mode(rgb_bl_mode_t mode);
 void rgb_bl_set_effect(rgb_bl_effect_t effect);
 void rgb_bl_set_brightness(uint8_t brightness);
 void rgb_bl_set_custom(uint8_t r, uint8_t g, uint8_t b);
+void rgb_bl_get_custom(uint8_t *r, uint8_t *g, uint8_t *b);
 void rgb_bl_on(void);
 void rgb_bl_off(void);
 void rgb_bl_update(void);       /* Call periodically for effects (breathe/cycle) */
@@ -66,6 +71,13 @@ uint8_t          rgb_bl_is_on(void);
 
 const char *rgb_bl_mode_name(rgb_bl_mode_t mode);
 const char *rgb_bl_effect_name(rgb_bl_effect_t effect);
+
+/* Reactive lighting — drives the RGB mod from live battery/charge state via a
+ * background timer (battery-level color, charging pulse, notification flash).
+ * Only active when the RGB mod is the selected backlight. */
+void    rgb_bl_reactive_set(uint8_t enable);
+uint8_t rgb_bl_reactive_is_on(void);
+void    rgb_bl_notify_flash(void);   /* brief flash on a system notification */
 
 /* Unified backlight API — routes to LP5814 or RGB mod automatically */
 void m1_backlight_on(uint8_t brightness);

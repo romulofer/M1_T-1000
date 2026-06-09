@@ -169,4 +169,23 @@ bool nfc_is_carrier_active(void);
  */
 uint32_t nfc_get_remaining_time(void);
 
+/*============================================================================*/
+/* MIFARE Classic recovered-key report (from the last dictionary read)        */
+/*============================================================================*/
+
+/** @return number of sectors attempted in the last MFC read (0 if none yet) */
+uint16_t nfc_mfc_keys_total(void);
+
+/** @return number of sectors whose key was recovered in the last MFC read */
+uint16_t nfc_mfc_keys_found(void);
+
+/**
+ * @brief  Get the recovered key for a sector from the last MFC read.
+ * @param  sector    Sector index
+ * @param  type_out  Receives 'A' or 'B' (whichever authenticated), else 0
+ * @param  key_out   Receives the 6-byte key
+ * @retval true if a key was recovered for this sector
+ */
+bool nfc_mfc_key_get(uint16_t sector, char *type_out, uint8_t key_out[6]);
+
 #endif /* NFC_POLLER_H_ */

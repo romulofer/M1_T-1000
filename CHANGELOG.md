@@ -2,6 +2,33 @@
 
 All notable changes to the M1 T-1000 firmware will be documented in this file.
 
+## [0.1.3] - 2026-06-09
+
+### Added
+- **RGB Backlight mod support** (SK6805) with a full control menu:
+  - Color modes, animations (Static, Breathe, Color Cycle, Strobe, Fade) and brightness
+  - **Custom RGB color editor** — set an exact R/G/B color, saved to SD
+  - **Reactive lighting** — drives the RGB mod from live system state: battery-level
+    color (green → amber → red), a pulse while charging, and a flash on notifications
+  - Settings persist and restore on boot from either entry point
+- **IR Universal Power-Off (TV-B-Gone)** — blast every TV power code from
+  `IR/TV/Universal_Power.ir` to switch off nearby televisions, with progress and abort
+- **NFC recovered-key report** — after a MIFARE Classic dictionary read, view the key
+  (A/B) recovered for each sector on screen and save it to `NFC/<UID>_keys.txt`
+
+### Fixed
+- **Power Off / Reboot screen** device icon no longer overflows the frame or the caption
+- **Main menu icons** resized so they sit inside their rows (no border bleed / clipping)
+- **"M1" panel label** no longer sits on the box border
+- **RGB Backlight menu** label and brightness-readout inconsistencies; "Color Cycle"
+  now animates on solid colors
+
+## [0.1.2]
+
+### Fixed
+- Infrared transmit fix
+- Restored missing firmware functions
+
 ## [0.1.1] - 2026-04-17
 
 ### Added

@@ -38,7 +38,10 @@
 #define BROWSE_NAMES_MAX     16
 #define BROWSE_NAME_MAX_LEN  64
 
-#define DASHBOARD_ITEM_COUNT  5
+#define DASHBOARD_ITEM_COUNT  6
+
+/* TV power-code database blasted by the "Power Off TVs" action */
+#define IR_POWER_DB_PATH      IR_UNIVERSAL_IRDB_ROOT "/TV/Universal_Power.ir"
 #define DASHBOARD_ITEM_HEIGHT 9
 #define DASHBOARD_START_Y     13
 
@@ -88,7 +91,8 @@ static const char *s_dashboard_items[DASHBOARD_ITEM_COUNT] = {
 	"Learned",
 	"Favorites",
 	"Recent",
-	"Remote Mode"
+	"Remote Mode",
+	"Power Off TVs"
 };
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
@@ -98,6 +102,7 @@ static void browse_directory(const char *path);
 static void show_commands(const char *ir_file_path);
 static void transmit_command(const ir_universal_cmd_t *cmd);
 static void transmit_raw_command(const ir_universal_cmd_t *cmd);
+static void power_off_blast(void);
 static void load_favorites(void);
 static void save_favorites(void);
 static void add_to_recent(const char *path);
@@ -330,6 +335,9 @@ static void dashboard_screen(void)
 								m1_southpaw_mode = 0;
 								u8g2_SetDisplayRotation(&m1_u8g2, U8G2_R1);
 							}
+							break;
+						case 5: /* Power Off TVs — blast every TV power code */
+							power_off_blast();
 							break;
 						default:
 							break;
@@ -1266,6 +1274,115 @@ static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 	 * The ISR steps through s_raw_ota_buffer and sends Q_EVENT_IRRED_TX
 	 * when complete. The caller's event loop handles cleanup. */
 } // static void transmit_raw_command(...)
+
+
+
+/*============================================================================*/
+/*
+ * Power Off TVs (TV-B-Gone style).
+ *
+ * Parses 0:/IR/TV/Universal_Power.ir and transmits every TV power code in
+ * sequence so any nearby television switches off. Reuses the same IRMP
+ * encode/TX path as transmit_command(). BACK (or LEFT) aborts mid-sequence.
+ */
+/*============================================================================*/
+static void power_off_blast(void)
+{
+	S_M1_Buttons_Status this_button_status;
+	S_M1_Main_Q_t q_item;
+	char line[28];
+	uint16_t count;
+	uint16_t i = 0;
+	bool aborted = false;
+
+	count = parse_ir_file(IR_POWER_DB_PATH);
+
+	if (count == 0)
+	{
+		u8g2_FirstPage(&m1_u8g2);
+		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+		u8g2_DrawStr(&m1_u8g2, 12, 18, "No power codes");
+		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+		u8g2_DrawStr(&m1_u8g2, 4, 36, "TV/Universal_Power.ir");
+		u8g2_DrawStr(&m1_u8g2, 4, 48, "missing on SD card");
+		m1_u8g2_nextpage();
+		vTaskDelay(pdMS_TO_TICKS(1800));
+		return;
+	}
+
+	/* In case any entry is a raw signal, point the raw TX at this file. */
+	strncpy(s_raw_tx_filepath, IR_POWER_DB_PATH, IR_UNIVERSAL_PATH_MAX_LEN - 1);
+	s_raw_tx_filepath[IR_UNIVERSAL_PATH_MAX_LEN - 1] = '\0';
+
+	for (i = 0; i < count; i++)
+	{
+		/* Non-blocking abort check */
+		if (xQueueReceive(main_q_hdl, &q_item, 0) == pdTRUE &&
+		    q_item.q_evt_type == Q_EVENT_KEYPAD)
+		{
+			xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+			if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK ||
+			    this_button_status.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
+			{
+				aborted = true;
+				break;
+			}
+		}
+
+		/* Progress screen */
+		u8g2_FirstPage(&m1_u8g2);
+		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+		u8g2_DrawStr(&m1_u8g2, 12, 16, "Power Off TVs");
+		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+		snprintf(line, sizeof(line), "Sending %u/%u", (unsigned)(i + 1), (unsigned)count);
+		u8g2_DrawStr(&m1_u8g2, 6, 32, line);
+		u8g2_DrawStr(&m1_u8g2, 6, 44, s_commands[i].name);
+		u8g2_DrawStr(&m1_u8g2, 6, 60, "BACK to stop");
+		m1_u8g2_nextpage();
+
+		m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
+
+		/* Transmit this code (mirrors transmit_command()'s parsed-signal path) */
+		if (s_commands[i].is_raw)
+		{
+			transmit_raw_command(&s_commands[i]);
+		}
+		else if (s_commands[i].protocol != IRMP_UNKNOWN_PROTOCOL)
+		{
+			s_tx_irmp_data.protocol = s_commands[i].protocol;
+			s_tx_irmp_data.address  = s_commands[i].address;
+			s_tx_irmp_data.command  = s_commands[i].command;
+			s_tx_irmp_data.flags    = s_commands[i].flags;
+
+			infrared_encode_sys_init();
+			irsnd_generate_tx_data(s_tx_irmp_data);
+			infrared_transmit(1);
+			infrared_transmit(0);
+		}
+
+		/* Let the frame finish before sending the next code */
+		vTaskDelay(pdMS_TO_TICKS(220));
+	}
+
+	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
+	infrared_encode_sys_deinit();
+
+	/* Result screen */
+	u8g2_FirstPage(&m1_u8g2);
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(&m1_u8g2, 18, 28, aborted ? "Stopped" : "Done");
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	snprintf(line, sizeof(line), "%u codes sent", (unsigned)i);
+	u8g2_DrawStr(&m1_u8g2, 18, 44, line);
+	m1_u8g2_nextpage();
+	m1_buzzer_notification();
+	vTaskDelay(pdMS_TO_TICKS(1200));
+
+	xQueueReset(main_q_hdl);
+} // static void power_off_blast(void)
 
 
 

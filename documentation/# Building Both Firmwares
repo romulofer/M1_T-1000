@@ -1,0 +1,178 @@
+# Building Both Firmwares
+
+This guide covers the two separate firmware builds used by the M1:
+
+1. The main STM32 firmware in this repo
+2. The ESP32-C6 SPI AT firmware in the companion repo
+
+## Repos
+
+Main firmware:
+
+- `/Users/dag/Documents/GitHub/M1-os`
+
+ESP32 AT firmware:
+
+- `/Users/dag/Documents/GitHub/esp32-at-monstatek-m1`
+
+## 1. Build The Main M1 Firmware
+
+### Build From The M1 Repo
+
+```bash
+cd /Users/dag/Documents/GitHub/M1-os
+eval "$(/opt/homebrew/bin/brew shellenv)"
+./build.sh
+```
+
+### What `build.sh` Does
+
+- finds a working `arm-none-eabi-gcc`
+- finds `cmake` and `ninja`
+- updates submodules
+- configures the build directory
+- builds the firmware
+- injects CRC and metadata
+- copies final outputs into `artifacts/`
+
+### Main Output Files
+
+After a successful build, look here:
+
+- `/Users/dag/Documents/GitHub/M1-os/artifacts/M1_T-1000_v0.1.0_wCRC.bin`
+- `/Users/dag/Documents/GitHub/M1-os/artifacts/M1_T-1000_v0.1.0.elf`
+- `/Users/dag/Documents/GitHub/M1-os/artifacts/M1_T-1000_v0.1.0.hex`
+
+The file you usually want to flash is:
+
+- `/Users/dag/Documents/GitHub/M1-os/artifacts/M1_T-1000_v0.1.0_wCRC.bin`
+
+### If The Main Build Fails
+
+Check these first:
+
+- Homebrew shell env is loaded:
+  - `eval "$(/opt/homebrew/bin/brew shellenv)"`
+- STM32CubeIDE ARM toolchain is installed
+- `cmake` and `ninja` are available
+
+## 2. Build The ESP32-C6 SPI AT Firmware
+
+This is a separate build in the ESP32 repo.
+
+### Build From The ESP32 Repo
+
+```bash
+cd /Users/dag/Documents/GitHub/esp32-at-monstatek-m1
+python3 build.py build
+```
+
+### Select The Correct Target
+
+When `build.py` prompts you, use:
+
+1. `PLATFORM_ESP32C6`
+2. `ESP32C6-SPI`
+
+If you see a silence/debug style prompt, the normal choice is:
+
+1. `0`
+
+### Notes
+
+- The M1 uses SPI AT at runtime, not UART AT
+- Do not build a UART-only ESP32-C6 target for the M1
+- `ESP32C6-SPI` is the correct module target for this device
+
+### Main ESP32 Output Files
+
+After a successful build, the important files are:
+
+- `/Users/dag/Documents/GitHub/esp32-at-monstatek-m1/build/factory/factory_ESP32C6-SPI.bin`
+- `/Users/dag/Documents/GitHub/esp32-at-monstatek-m1/build/esp-at.bin`
+- `/Users/dag/Documents/GitHub/esp32-at-monstatek-m1/build/download.config`
+
+For the M1 SD-card flasher, the main file you usually want is:
+
+- `/Users/dag/Documents/GitHub/esp32-at-monstatek-m1/build/factory/factory_ESP32C6-SPI.bin`
+
+## 3. Create The ESP32 MD5 File For The M1 Flasher
+
+The M1 ESP32 flasher expects both:
+
+- the `.bin`
+- a matching `.md5`
+
+The MD5 file format must be:
+
+- uppercase hex
+- exactly 32 bytes
+- no newline
+
+### macOS Command
+
+```bash
+cd /Users/dag/Documents/GitHub/esp32-at-monstatek-m1/build/factory
+printf "%s" "$(md5 -q factory_ESP32C6-SPI.bin | tr '[:lower:]' '[:upper:]')" > factory_ESP32C6-SPI.md5
+```
+
+### Verify The MD5 File Length
+
+```bash
+wc -c factory_ESP32C6-SPI.md5
+```
+
+It should print:
+
+- `32`
+
+### Files The M1 Flasher Needs
+
+Put both of these on the SD card where your updater expects them:
+
+- `/Users/dag/Documents/GitHub/esp32-at-monstatek-m1/build/factory/factory_ESP32C6-SPI.bin`
+- `/Users/dag/Documents/GitHub/esp32-at-monstatek-m1/build/factory/factory_ESP32C6-SPI.md5`
+
+## 4. Quick Build Checklist
+
+### Main M1 Firmware
+
+```bash
+cd /Users/dag/Documents/GitHub/M1-os
+eval "$(/opt/homebrew/bin/brew shellenv)"
+./build.sh
+```
+
+Result:
+
+- `artifacts/M1_T-1000_v0.1.0_wCRC.bin`
+
+### ESP32 Firmware
+
+```bash
+cd /Users/dag/Documents/GitHub/esp32-at-monstatek-m1
+python3 build.py build
+```
+
+Choose:
+
+1. `PLATFORM_ESP32C6`
+2. `ESP32C6-SPI`
+
+Then generate MD5:
+
+```bash
+cd /Users/dag/Documents/GitHub/esp32-at-monstatek-m1/build/factory
+printf "%s" "$(md5 -q factory_ESP32C6-SPI.bin | tr '[:lower:]' '[:upper:]')" > factory_ESP32C6-SPI.md5
+```
+
+Result:
+
+- `factory_ESP32C6-SPI.bin`
+- `factory_ESP32C6-SPI.md5`
+
+## 5. Related Docs
+
+- [ESP32_WIFI_COMMANDS.md](/Users/dag/Documents/GitHub/M1-os/documentation/ESP32_WIFI_COMMANDS.md)
+
+That doc explains where to add new M1-specific WiFi commands on the ESP32 side and how to wire them back into the STM32 firmware.

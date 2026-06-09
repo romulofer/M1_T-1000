@@ -140,6 +140,8 @@ static uint8_t nfc_read_more_options_save(void);
 static uint8_t nfc_read_more_options_delete(void);
 void m1_nfc_info_more_draw(void);
 static void nfc_extra_read_mfc(void);
+static void nfc_show_recovered_keys(void);
+static bool nfc_save_recovered_keys(void);
 static void nfc_extra_read_ul(void);
 static void nfc_extra_unlock_slix(void);
 
@@ -3969,6 +3971,154 @@ void nfc_detect_reader(void)
 /*============================================================================*/
 
 /*============================================================================*/
+/* Recovered-key report — which dictionary key opened each MFC sector          */
+/*============================================================================*/
+
+/*============================================================================*/
+/**
+ * @brief  Write the recovered sector keys from the last MFC read to
+ *         0:/NFC/<UID>_keys.txt (human-readable, one line per sector).
+ * @retval true on success
+ */
+/*============================================================================*/
+static bool nfc_save_recovered_keys(void)
+{
+	nfc_run_ctx_t *c = nfc_ctx_get();
+	FIL f;
+	char path[40];
+	char uidc[24];
+	char line[64];
+	uint16_t s;
+	uint8_t i;
+
+	if (c == NULL || c->head.uid_len == 0)
+		return false;
+
+	/* Compact UID for the filename, e.g. "DEADBEEF" */
+	uidc[0] = '\0';
+	for (i = 0; i < c->head.uid_len && i < 10U; i++)
+	{
+		char t[3];
+		snprintf(t, sizeof(t), "%02X", c->head.uid[i]);
+		strcat(uidc, t);
+	}
+
+	snprintf(path, sizeof(path), "0:/NFC/%s_keys.txt", uidc);
+	if (m1_fb_open_new_file(&f, path) != 0)
+		return false;
+
+	snprintf(line, sizeof(line), "# MIFARE Classic recovered keys\r\n# UID: %s\r\n", uidc);
+	m1_fb_write_to_file(&f, line, strlen(line));
+
+	for (s = 0; s < nfc_mfc_keys_total(); s++)
+	{
+		char type;
+		uint8_t key[6];
+		if (nfc_mfc_key_get(s, &type, key))
+		{
+			snprintf(line, sizeof(line),
+			         "Sector %02u: Key%c %02X%02X%02X%02X%02X%02X\r\n",
+			         (unsigned)s, type,
+			         key[0], key[1], key[2], key[3], key[4], key[5]);
+		}
+		else
+		{
+			snprintf(line, sizeof(line), "Sector %02u: ----\r\n", (unsigned)s);
+		}
+		m1_fb_write_to_file(&f, line, strlen(line));
+	}
+
+	m1_fb_close_file(&f);
+	return true;
+}
+
+/*============================================================================*/
+/**
+ * @brief  Scrollable on-screen report of the keys recovered for each sector
+ *         during the most recent MFC dictionary read. OK saves to SD.
+ */
+/*============================================================================*/
+static void nfc_show_recovered_keys(void)
+{
+	S_M1_Buttons_Status bs;
+	S_M1_Main_Q_t q_item;
+	BaseType_t ret;
+	const uint8_t VIS = 5U;          /* visible rows */
+	uint16_t total = nfc_mfc_keys_total();
+	uint16_t found = nfc_mfc_keys_found();
+	uint16_t top = 0;
+	bool running = true;
+	bool saved = false;
+
+	if (total == 0U)
+	{
+		m1_message_box(&m1_u8g2, "Recovered Keys", "Read a MFC card", "first", "BACK to return");
+		return;
+	}
+
+	while (running)
+	{
+		char hdr[28];
+
+		u8g2_FirstPage(&m1_u8g2);
+		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
+
+		snprintf(hdr, sizeof(hdr), "Keys: %u/%u sectors", (unsigned)found, (unsigned)total);
+		u8g2_DrawStr(&m1_u8g2, 0, 8, hdr);
+		u8g2_DrawHLine(&m1_u8g2, 0, 10, 128);
+
+		for (uint8_t i = 0; i < VIS && (top + i) < total; i++)
+		{
+			uint16_t sct = (uint16_t)(top + i);
+			char type;
+			uint8_t key[6];
+			char row[28];
+
+			if (nfc_mfc_key_get(sct, &type, key))
+			{
+				snprintf(row, sizeof(row), "S%02u %c %02X%02X%02X%02X%02X%02X",
+				         (unsigned)sct, type,
+				         key[0], key[1], key[2], key[3], key[4], key[5]);
+			}
+			else
+			{
+				snprintf(row, sizeof(row), "S%02u  --", (unsigned)sct);
+			}
+			u8g2_DrawStr(&m1_u8g2, 0, (u8g2_uint_t)(20 + i * 9), row);
+		}
+
+		u8g2_DrawStr(&m1_u8g2, 0, 64, saved ? "Saved  BACK:exit" : "OK:Save  BACK:exit");
+		m1_u8g2_nextpage();
+
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE || q_item.q_evt_type != Q_EVENT_KEYPAD) continue;
+		ret = xQueueReceive(button_events_q_hdl, &bs, 0);
+		if (ret != pdTRUE) continue;
+
+		if (bs.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
+			running = false;
+		else if (bs.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			if ((uint16_t)(top + VIS) < total) top++;
+		}
+		else if (bs.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			if (top > 0U) top--;
+		}
+		else if (bs.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			if (!saved)
+			{
+				saved = nfc_save_recovered_keys();
+				if (saved) m1_buzzer_notification();
+			}
+		}
+	}
+}
+
+
+/*============================================================================*/
 /* Feature 1: Read MF Classic (with known keys)                               */
 /*============================================================================*/
 static void nfc_extra_read_mfc(void)
@@ -4035,8 +4185,8 @@ static void nfc_extra_read_mfc(void)
 	}
 
 	/* Show read result with Save/Emulate options */
-	#define MFC_READ_RESULT_OPTIONS 3
-	static const char *mfc_result_opts[] = { "Save", "Emulate", "Info" };
+	#define MFC_READ_RESULT_OPTIONS 4
+	static const char *mfc_result_opts[] = { "Save", "Emulate", "Info", "Keys" };
 
 	{
 		char line1[32], line2[32];
@@ -4131,6 +4281,10 @@ static void nfc_extra_read_mfc(void)
 						break;
 					case 2: /* Info */
 						m1_nfc_info_more_draw();
+						in_sub = false;
+						break;
+					case 3: /* Keys — recovered sector keys report */
+						nfc_show_recovered_keys();
 						in_sub = false;
 						break;
 					}

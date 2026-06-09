@@ -18,6 +18,7 @@
 #include "stm32h5xx_hal.h"
 #include "main.h"
 #include "m1_buzzer.h"
+#include "m1_rgb_backlight.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -209,6 +210,7 @@ void m1_buzzer_set(uint16_t frequency, uint16_t duration_ms)
 void m1_buzzer_notification(void)
 {
 	 m1_buzzer_set(BUZZER_FREQ_04_KHZ, BUZZER_NOTIFICATION_DURATION);
+	 rgb_bl_notify_flash();  /* brief RGB flash when reactive lighting is on */
 } // void m1_buzzer_notification(void)
 
 

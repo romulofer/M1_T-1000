@@ -149,6 +149,7 @@ extern const uint8_t rfid_read_125x24[];
 extern const uint8_t fw_update_slide_strip_126x14[];
 extern const uint8_t fw_update_slider_5x8[];
 extern const uint8_t m1_device_82x36[];
+extern const uint8_t m1_device_55x24[];
 extern const uint8_t error_10x10[];
 extern const uint8_t check_10x10[];
 extern const uint8_t sd_card_10x10[];

@@ -196,7 +196,6 @@ void app_stock_backlight_run(void)
                 {
                     m1_brightness_level = 3;
                     m1_backlight_on(s_brightness_values[3]);
-                    m1_backlight_on(s_brightness_values[3]);
                     bright_idx = 3;
                 }
             }

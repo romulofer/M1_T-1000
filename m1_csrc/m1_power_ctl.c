@@ -542,7 +542,7 @@ static void power_reboot_gui_update(uint8_t param)
 	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
 	m1_draw_header_bar(&m1_u8g2, "Power", "Reboot");
 	m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
-	u8g2_DrawXBMP(&m1_u8g2, 23, 16, 82, 36, m1_device_82x36);
+	u8g2_DrawXBMP(&m1_u8g2, 37, 15, 55, 24, m1_device_55x24);
 	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
 	m1_draw_text(&m1_u8g2, 2, 48, 124, res_string(IDS_REBOOT), TEXT_ALIGN_CENTER);
 	//u8g2_DrawStr(&m1_u8g2, 35, 49, "REBOOT");
@@ -686,7 +686,7 @@ static void power_shutdown_gui_update(uint8_t param)
 	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
 	m1_draw_header_bar(&m1_u8g2, "Power", "Off");
 	m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
-	u8g2_DrawXBMP(&m1_u8g2, 23, 16, 82, 36, m1_device_82x36);
+	u8g2_DrawXBMP(&m1_u8g2, 37, 15, 55, 24, m1_device_55x24);
 	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
 	m1_draw_text(&m1_u8g2, 2, 48, 124, res_string(IDS_POWER_OFF), TEXT_ALIGN_CENTER);
 

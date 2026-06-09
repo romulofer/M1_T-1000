@@ -456,10 +456,9 @@ static void settings_about_display_choice(uint8_t choice)
 			u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_B);
 			m1_draw_text(&m1_u8g2, 8, 24, 114, M1_PRODUCT_NAME, TEXT_ALIGN_LEFT);
 			u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
-			m1_draw_text(&m1_u8g2, 8, 33, 114, T1000_VERSION_STRING, TEXT_ALIGN_LEFT);
+			m1_draw_text(&m1_u8g2, 8, 34, 114, T1000_VERSION_STRING, TEXT_ALIGN_LEFT);
 			sprintf(prn_name, "Active bank: %d", (m1_device_stat.active_bank==BANK1_ACTIVE)?1:2);
-			m1_draw_text(&m1_u8g2, 8, 42, 114, prn_name, TEXT_ALIGN_LEFT);
-			m1_draw_text(&m1_u8g2, 8, 51, 114, T1000_COMPAT_VERSION_STRING, TEXT_ALIGN_LEFT);
+			m1_draw_text(&m1_u8g2, 8, 44, 114, prn_name, TEXT_ALIGN_LEFT);
 			break;
 
 		case 1: // Company info
@@ -467,11 +466,10 @@ static void settings_about_display_choice(uint8_t choice)
 			m1_draw_text(&m1_u8g2, 8, 24, 114, "MonstaTek Inc.", TEXT_ALIGN_LEFT);
 			u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
 			m1_draw_text(&m1_u8g2, 8, 34, 114, "San Jose, CA, USA", TEXT_ALIGN_LEFT);
-			m1_draw_text(&m1_u8g2, 8, 44, 114, "Base firmware lineage", TEXT_ALIGN_LEFT);
 			break;
 
 		default:
-			u8g2_DrawXBMP(&m1_u8g2, 23, 16, 82, 36, m1_device_82x36);
+			u8g2_DrawXBMP(&m1_u8g2, 37, 20, 55, 24, m1_device_55x24);
 			break;
 	} // switch (choice)
 
@@ -534,6 +532,14 @@ void settings_save_to_sd(void)
     snprintf(buf, sizeof(buf), "rgb_effect=%d\n", (int)rgb_bl_get_effect());
     f_write(&fp, buf, strlen(buf), &bw);
     snprintf(buf, sizeof(buf), "rgb_brightness=%d\n", (int)rgb_bl_get_brightness());
+    f_write(&fp, buf, strlen(buf), &bw);
+    {
+        uint8_t cr, cg, cb;
+        rgb_bl_get_custom(&cr, &cg, &cb);
+        snprintf(buf, sizeof(buf), "rgb_custom=%d,%d,%d\n", (int)cr, (int)cg, (int)cb);
+        f_write(&fp, buf, strlen(buf), &bw);
+    }
+    snprintf(buf, sizeof(buf), "rgb_reactive=%d\n", (int)rgb_bl_reactive_is_on());
     f_write(&fp, buf, strlen(buf), &bw);
 
 #ifdef M1_APP_BADBT_ENABLE
@@ -658,7 +664,7 @@ void settings_load_from_sd(void)
     p = strstr(buf, "rgb_mode=");
     if (p != NULL)
     {
-        val = (int)(*(p + 9) - '0');
+        val = atoi(p + 9);
         if (val >= 0 && val < RGB_MODE_COUNT)
             rgb_bl_set_mode((rgb_bl_mode_t)val);
     }
@@ -679,6 +685,29 @@ void settings_load_from_sd(void)
         val = atoi(p + 15);
         if (val >= 0 && val <= 255)
             rgb_bl_set_brightness((uint8_t)val);
+    }
+
+    /* Parse "rgb_custom=R,G,B" */
+    p = strstr(buf, "rgb_custom=");
+    if (p != NULL)
+    {
+        int cr = 0, cg = 0, cb = 0;
+        if (sscanf(p + 11, "%d,%d,%d", &cr, &cg, &cb) == 3)
+        {
+            rgb_bl_mode_t saved_mode = rgb_bl_get_mode();
+            rgb_bl_set_custom((uint8_t)(cr & 0xFF), (uint8_t)(cg & 0xFF), (uint8_t)(cb & 0xFF));
+            /* set_custom forces CUSTOM mode — restore the saved color mode so
+             * the persisted rgb_mode wins unless the user actually chose Custom. */
+            rgb_bl_set_mode(saved_mode);
+        }
+    }
+
+    /* Parse "rgb_reactive=X" — start the reactive timer if enabled for the RGB
+     * mod. The timer no-ops until the RGB hardware is brought up below. */
+    p = strstr(buf, "rgb_reactive=");
+    if (p != NULL && *(p + 13) == '1' && m1_backlight_type == 1)
+    {
+        rgb_bl_reactive_set(1);
     }
 
     /* Legacy: migrate "southpaw=1" if no orientation key found */
