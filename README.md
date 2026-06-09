@@ -25,8 +25,11 @@
 - **Tag Info** — manufacturer lookup, SAK decode, technology identification
 - **T2T Page Dump** — read and display Type 2 Tag memory pages
 - **Clone & Emulate** — copy and replay NFC tags
+- **NDEF Writer** — write a URL or text record to an NTAG/Type-2 tag
 - **NFC Fuzzer** — protocol testing tool
 - **MIFARE Classic Crypto1** support
+- **Recovered-key report** — after a dictionary read, view the Key A/B recovered for each sector and save it to `NFC/<UID>_keys.txt`
+- **MFKey Detect** — emulate a card and capture reader authentication nonces for offline key recovery
 - **Maximum Power Carrier** — 40% modulation (ST25R3916 hardware maximum)
 - **Long Duration Tests** — carrier transmissions up to 60 seconds
 - **False Positive Prevention** — validation checks in scan functions
@@ -42,6 +45,7 @@
 
 ### Infrared
 - **Universal Remote Database** — pre-built remotes for Samsung, LG, Sony, Vizio, Bose, Denon, and more (see [`ir_database/`](ir_database/))
+- **Universal Power-Off (TV-B-Gone)** — blast known TV power codes to switch off any nearby television; a **Power Off A/V** action does the same for soundbars, receivers, and projectors
 - **Learn & Save** — record IR signals and save to SD card
 - **Import** Flipper Zero `.ir` files
 - **Universal Power-Off (TV-B-Gone)** — blast TV power codes to turn off nearby televisions with progress display and abort support
@@ -94,6 +98,13 @@
 - Two firmware banks with safe boot validation
 - Swap between banks from the menu or via the companion app
 - CRC verification before boot — falls back to working bank on corruption
+
+### RGB Backlight
+- **RGB mod support** (SK6805) — drives an add-on RGB LED backlight behind the screen
+- **Color, animation, and brightness** control — Static, Breathe, Color Cycle, Strobe, and Fade effects
+- **Custom color editor** — dial in an exact R/G/B color, saved to SD
+- **Reactive lighting** — color follows live system state: battery level (green → amber → red), a pulse while charging, and a flash on notifications
+- **Stock backlight** control for the standard LP5814 white backlight
 
 ### Other Improvements
 - **RPC protocol** for [qMonstatek](https://github.com/bedge117/qMonstatek) companion app communication
@@ -232,14 +243,15 @@ Use an ST-Link or J-Link debugger with STM32CubeIDE or OpenOCD.
 ```
 0:/
 ├── BadUSB/          DuckyScript .txt files
+├── BT/              Saved Bluetooth devices
+├── Flipper/         Imported Flipper Zero files
 ├── IR/              Infrared remote .ir files (see ir_database/)
 │   └── Learned/     IR signals recorded by the M1
-├── NFC/             NFC tag .nfc files
+├── NFC/             NFC tag .nfc files and recovered keys
 ├── RFID/            RFID tag .rfid files
-├── SubGHz/          Sub-GHz signal .sub files
-├── apps/            External .m1app applications
-├── settings.ini     M1 settings (auto-generated)
-└── wifi_cred.ini    Saved WiFi credentials (auto-generated)
+├── SUBGHZ/          Sub-GHz signal .sub files
+├── System/          Settings (settings.cfg) and saved WiFi credentials
+└── apps/            External .m1app applications
 ```
 
 ## Contributing

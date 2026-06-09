@@ -13,6 +13,8 @@ All notable changes to the M1 T-1000 firmware will be documented in this file.
   - Settings persist and restore on boot from either entry point
 - **IR Universal Power-Off (TV-B-Gone)** — blast every TV power code from
   `IR/TV/Universal_Power.ir` to switch off nearby televisions, with progress and abort
+- **IR Power Off A/V** — same blaster extended to soundbars, receivers, and projectors
+- **NFC NDEF Writer** — write a URL or Text record to an NTAG/Type-2 tag (NFC Tools menu)
 - **NFC recovered-key report** — after a MIFARE Classic dictionary read, view the key
   (A/B) recovered for each sector on screen and save it to `NFC/<UID>_keys.txt`
 

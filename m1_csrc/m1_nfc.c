@@ -67,13 +67,14 @@ const char *m1_nfc_more_options_file[] = {
 };
 
 /* Menu for NFC Tools (both top-level nfc_tools() and Utils view) */
-#define NFC_TOOL_OPTIONS_COUNT  5
+#define NFC_TOOL_OPTIONS_COUNT  6
 static const char *m1_nfc_tool_options[] = {
 	"Tag Info",
 	"Clone Emulate",
 	"NFC Fuzzer",
 	"Write UID",
-	"Wipe Tag"
+	"Wipe Tag",
+	"Write NDEF"
 };
 
 
@@ -186,6 +187,7 @@ static int nfc_utils_kp_handler(void);
 static const char* nfc_tool_manufacturer_name(uint8_t mfr_byte);
 static const char* nfc_tool_sak_meaning(uint8_t sak, const uint8_t atqa[2]);
 static void nfc_tool_fuzzer(void);
+static void nfc_utils_write_ndef_run(void);
 
 static void nfc_info_gui_init(void);
 static void nfc_info_gui_create(uint8_t param);
@@ -1377,6 +1379,212 @@ static void nfc_utils_wipe_tag_run(void)
 
 /*============================================================================*/
 /**
+ * @brief Build an NDEF Message TLV (0x03 len ... 0xFE) holding a single
+ *        well-known URL or Text record.
+ * @param is_url   true = URI record ('U'), false = Text record ('T', "en")
+ * @param str      content string (URL or text)
+ * @param out      output buffer
+ * @param out_max  output buffer size
+ * @retval total byte length written, or 0 if it doesn't fit
+ */
+/*============================================================================*/
+static uint16_t nfc_build_ndef_tlv(bool is_url, const char *str,
+                                   uint8_t *out, uint16_t out_max)
+{
+	uint8_t  payload[64];
+	uint16_t plen = 0;
+	uint8_t  type_byte;
+	uint8_t  rec[80];
+	uint16_t rlen = 0;
+	uint16_t total = 0;
+
+	if (is_url)
+	{
+		/* URI record: [prefix code][uri remainder] */
+		uint8_t prefix = 0x00;
+		const char *uri = str;
+		uint16_t ul;
+
+		if      (strncmp(str, "https://www.", 12) == 0) { prefix = 0x02; uri = str + 12; }
+		else if (strncmp(str, "http://www.",  11) == 0) { prefix = 0x01; uri = str + 11; }
+		else if (strncmp(str, "https://",      8) == 0) { prefix = 0x04; uri = str + 8;  }
+		else if (strncmp(str, "http://",       7) == 0) { prefix = 0x03; uri = str + 7;  }
+
+		type_byte = 'U';
+		payload[plen++] = prefix;
+		ul = (uint16_t)strlen(uri);
+		if (ul > sizeof(payload) - 1) return 0;
+		memcpy(&payload[plen], uri, ul);
+		plen = (uint16_t)(plen + ul);
+	}
+	else
+	{
+		/* Text record: [status = lang length]["en"][text] */
+		uint16_t tl = (uint16_t)strlen(str);
+		type_byte = 'T';
+		payload[plen++] = 0x02;            /* language code length */
+		payload[plen++] = 'e';
+		payload[plen++] = 'n';
+		if (tl > sizeof(payload) - 3) return 0;
+		memcpy(&payload[plen], str, tl);
+		plen = (uint16_t)(plen + tl);
+	}
+
+	/* Single short NDEF record: MB=1 ME=1 SR=1 TNF=1 (well-known) */
+	rec[rlen++] = 0xD1;
+	rec[rlen++] = 0x01;                     /* type length */
+	rec[rlen++] = (uint8_t)plen;            /* payload length (short record) */
+	rec[rlen++] = type_byte;
+	memcpy(&rec[rlen], payload, plen);
+	rlen = (uint16_t)(rlen + plen);
+
+	/* Wrap in NDEF Message TLV + Terminator TLV */
+	if ((uint16_t)(rlen + 3) > out_max) return 0;
+	out[total++] = 0x03;                    /* NDEF Message TLV tag */
+	out[total++] = (uint8_t)rlen;           /* length (assumes < 255) */
+	memcpy(&out[total], rec, rlen);
+	total = (uint16_t)(total + rlen);
+	out[total++] = 0xFE;                    /* Terminator TLV */
+	return total;
+}
+
+/*============================================================================*/
+/**
+ * @brief Write a URL or Text NDEF record to a Type-2 (NTAG/Ultralight) tag.
+ *        Composes the NDEF message and writes it from page 4 using the same
+ *        rfalT2TPollerWrite path as Wipe Tag. The tag should already be
+ *        NDEF-formatted (default for NFC tags sold for tap actions).
+ */
+/*============================================================================*/
+static void nfc_utils_write_ndef_run(void)
+{
+	S_M1_Buttons_Status btn;
+	S_M1_Main_Q_t q_item;
+	BaseType_t ret;
+	uint8_t type_sel = 0;          /* 0 = URL, 1 = Text */
+	bool chosen = false;
+	char content[40];
+	uint8_t ndef[160];
+	uint16_t total;
+
+	/* --- 1. Pick record type --- */
+	while (!chosen)
+	{
+		u8g2_FirstPage(&m1_u8g2);
+		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+		u8g2_DrawStr(&m1_u8g2, 4, 12, "Write NDEF");
+		u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
+		u8g2_DrawStr(&m1_u8g2, 14, 28, "URL");
+		u8g2_DrawStr(&m1_u8g2, 14, 40, "Text");
+		u8g2_DrawStr(&m1_u8g2, 4, (type_sel == 0) ? 28 : 40, ">");
+		u8g2_DrawStr(&m1_u8g2, 2, 62, "OK=Select  Back=Cancel");
+		m1_u8g2_nextpage();
+
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE || q_item.q_evt_type != Q_EVENT_KEYPAD) continue;
+		ret = xQueueReceive(button_events_q_hdl, &btn, 0);
+		if (ret != pdTRUE) continue;
+
+		if (btn.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK) return;
+		else if (btn.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK) type_sel = 0;
+		else if (btn.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK) type_sel = 1;
+		else if (btn.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK) chosen = true;
+	}
+
+	/* --- 2. Enter content (keyboard caps length at the default's length) --- */
+	if (type_sel == 0) strcpy(content, "https://example.com");
+	else               strcpy(content, "Hello from M1");
+	if (m1_vkbs_get_data((type_sel == 0) ? "URL" : "Text", content) == 0)
+		return;   /* cancelled */
+
+	/* Trim trailing spaces */
+	{
+		int n = (int)strlen(content);
+		while (n > 0 && content[n - 1] == ' ') content[--n] = '\0';
+	}
+	if (content[0] == '\0') return;
+
+	/* --- 3. Build NDEF message --- */
+	total = nfc_build_ndef_tlv(type_sel == 0, content, ndef, sizeof(ndef));
+	if (total == 0)
+	{
+		m1_message_box(&m1_u8g2, "Write NDEF", "Content too long", " ", "BACK to return");
+		return;
+	}
+
+	/* --- 4. Confirm --- */
+	u8g2_FirstPage(&m1_u8g2);
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(&m1_u8g2, 4, 12, "Write NDEF");
+	u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
+	u8g2_DrawStr(&m1_u8g2, 4, 26, content);
+	u8g2_DrawStr(&m1_u8g2, 4, 40, "Hold NTAG to write");
+	u8g2_DrawBox(&m1_u8g2, 0, 52, 128, 12);
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
+	u8g2_DrawStr(&m1_u8g2, 2, 61, "OK=Write  Back=Cancel");
+	m1_u8g2_nextpage();
+
+	while (1)
+	{
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE || q_item.q_evt_type != Q_EVENT_KEYPAD) continue;
+		ret = xQueueReceive(button_events_q_hdl, &btn, 0);
+		if (ret != pdTRUE) continue;
+		if (btn.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK) return;
+		if (btn.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK) break;
+	}
+
+	/* --- 5. Write pages 4.. --- */
+	u8g2_FirstPage(&m1_u8g2);
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(&m1_u8g2, 4, 25, "Writing NDEF...");
+	u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
+	u8g2_DrawStr(&m1_u8g2, 4, 40, "Hold tag steady");
+	m1_u8g2_nextpage();
+
+	{
+		ReturnCode err = RFAL_ERR_NONE;
+		uint16_t npages = (uint16_t)((total + 3) / 4);
+		uint16_t pg;
+
+		for (pg = 0; pg < npages; pg++)
+		{
+			uint8_t buf4[4] = { 0, 0, 0, 0 };
+			uint8_t k;
+			for (k = 0; k < 4; k++)
+			{
+				uint16_t idx = (uint16_t)(pg * 4 + k);
+				if (idx < total) buf4[k] = ndef[idx];
+			}
+			err = rfalT2TPollerWrite((uint8_t)(4 + pg), buf4);
+			if (err != RFAL_ERR_NONE) break;
+			m1_wdt_reset();
+		}
+
+		u8g2_FirstPage(&m1_u8g2);
+		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+		if (err == RFAL_ERR_NONE)
+		{
+			u8g2_DrawStr(&m1_u8g2, 4, 25, "NDEF Written!");
+			m1_buzzer_notification();
+		}
+		else
+		{
+			u8g2_DrawStr(&m1_u8g2, 4, 25, "Write Failed!");
+			u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
+			u8g2_DrawStr(&m1_u8g2, 4, 40, "Use blank NDEF NTAG");
+		}
+		m1_u8g2_nextpage();
+		vTaskDelay(pdMS_TO_TICKS(2000));
+	}
+}
+
+/*============================================================================*/
+/**
  * @brief nfc_utils_kp_handler - Handle keypad input for NFC utils view
  *
  * Processes button events in the NFC utils view:
@@ -1570,6 +1778,11 @@ static int nfc_utils_kp_handler(void)
 
 				case 4: /* Wipe Tag */
 					nfc_utils_wipe_tag_run();
+					m1_uiView_display_update(X_MENU_UPDATE_REFRESH);
+					break;
+
+				case 5: /* Write NDEF */
+					nfc_utils_write_ndef_run();
 					m1_uiView_display_update(X_MENU_UPDATE_REFRESH);
 					break;
 
@@ -3018,6 +3231,7 @@ void nfc_tools(void)
 					case 2: nfc_tool_fuzzer();       break;
 					case 3: nfc_utils_write_uid_run(); break;
 					case 4: nfc_utils_wipe_tag_run();  break;
+					case 5: nfc_utils_write_ndef_run(); break;
 					default: break;
 				}
 				/* Redraw submenu after returning from a tool */
