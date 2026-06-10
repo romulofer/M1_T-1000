@@ -111,7 +111,7 @@
 - **Stock backlight** control for the standard LP5814 white backlight
 
 ### Other Improvements
-- **RPC protocol** for [qMonstatek](https://github.com/bedge117/qMonstatek) companion app communication
+- **RPC protocol** for [M1 T-800](https://github.com/dagnazty/M1-T-800) companion app communication
 - **Settings persistence** — LCD brightness, southpaw mode, preferences saved to SD card
 - **Southpaw mode** — swap left/right button functions
 - **Safe NMI handler** — proper ECC fault recovery instead of hard fault
@@ -126,7 +126,7 @@
 
 ## Companion App
 
-**[qMonstatek](https://github.com/bedge117/qMonstatek)** — Desktop companion app for Windows. Connect your M1 via USB to:
+**[M1 T-800](https://github.com/dagnazty/M1-T-800)** — Desktop companion app for Windows. Connect your M1 via USB to:
 
 - View device info, battery status, firmware version
 - Flash firmware updates over USB
@@ -136,7 +136,7 @@
 - Manage WiFi networks
 - Update the ESP32 coprocessor firmware
 
-Download the latest release from the [qMonstatek releases page](https://github.com/bedge117/qMonstatek/releases).
+Download the latest release from the [M1 T-800 releases page](https://github.com/dagnazty/M1-T-800/releases).
 
 ## IR Remote Database
 
@@ -229,14 +229,14 @@ release for the current commit using the matching firmware version tag.
 
 ## Flashing
 
-### Via qMonstatek (recommended)
-Connect via USB and use the Firmware Update page in [qMonstatek](https://github.com/bedge117/qMonstatek).
+### Via M1 T-800 (recommended)
+Connect via USB and use the Firmware Update page in [M1 T-800](https://github.com/dagnazty/M1-T-800).
 
 ### Via DFU Mode (recovery / first install)
 1. Power off the M1 (Settings > Power > Power Off > Right Button)
 2. Hold **Up + OK** for 5 seconds to enter DFU mode (screen stays dark)
 3. Connect via USB-C
-4. Use the DFU Flash page in [qMonstatek](https://github.com/bedge117/qMonstatek)
+4. Use the DFU Flash page in [M1 T-800](https://github.com/dagnazty/M1-T-800)
 
 To exit DFU mode without flashing, hold **Right + Back** to reboot.
 
@@ -264,6 +264,14 @@ Use an ST-Link or J-Link debugger with STM32CubeIDE or OpenOCD.
 Contributions are welcome. Please open an issue or pull request.
 
 If you're building a companion app or tool that communicates with the M1, the RPC protocol is implemented in `m1_csrc/m1_rpc.c` and `Core/Src/cli_app.c`.
+
+## Acknowledgments
+
+This project is a fork of and builds upon the work of:
+- [bedge117/M1](https://github.com/bedge117/M1) - The upstream repository from which this firmware was directly forked.
+- [Monstatek/M1](https://github.com/Monstatek/M1) - The original firmware repository from which the M1 platform originated.
+
+We would like to express our gratitude to the original developers and contributors of both projects for their foundational work and contributions to the M1 platform.
 
 ## License
 
