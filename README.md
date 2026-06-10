@@ -79,11 +79,13 @@
 - **Attack List** — save targets for offensive tools
 - **Offensive Tools** — WiFi penetration testing utilities:
   - **Deauth Flood** — send deauthentication frames to target AP
+  - **Deauth All** — scan, then broadcast-deauth every nearby AP with channel hopping
   - **PMKID Capture** — capture WPA2/WPA3 PMKID hashes
   - **Handshake Capture** — capture WPA2/WPA3 handshakes
   - **Beacon Spam** — broadcast fake AP beacons
   - **Karma Attack** — respond to all probe requests
   - **Probe Sniff** — capture client probe requests
+  - **Evil Twin** — open rogue AP with a DNS-hijack captive portal (editable SSID/channel)
 - **ESP32-C6 coprocessor** provides 2.4 GHz WiFi (WiFi 6) and Bluetooth LE 5.0
 
 ### NFC/RFID Field Detector
@@ -93,6 +95,8 @@
 ### Bluetooth Device Manager
 - Scan, save, and manage BLE devices
 - View device info and connection details
+- **BLE Spam** — flood Apple / Google / Microsoft "device nearby" advertisements
+  (vendor selectable: All / Apple / Google / Microsoft)
 
 ### Dual Boot
 - Two firmware banks with safe boot validation
@@ -118,6 +122,7 @@
 - **Attack List Integration** — auto-fill BSSID/channel in offensive tools
 - **RGB Backlight Mod (SK6805)** — control menu with brightness, color presets, custom RGB editor, and effects (Breathe, Color Cycle, Strobe, Fade)
 - **Reactive Backlight** — drives the RGB mod from live system state: battery level (green/amber/red), charging pulse (blue), and notification flash (white)
+- **Animated main-menu logo** — the M1 owl idly bounces DVD-screensaver style in its panel, then slides off and returns on a loop; cosmetic only, any keypress restores the static menu
 
 ## Companion App
 

@@ -588,11 +588,191 @@ static void m1_gui_draw_menu_header(const char *title, uint8_t sel_item, uint8_t
 	u8g2_DrawHLine(&m1_u8g2, 0, MENU_HEADER_HEIGHT - 1, M1_LCD_DISPLAY_WIDTH);
 }
 
+/*
+ * Main-menu logo animation: the solid owl bounces DVD-screensaver style inside
+ * its panel for a while, eases back to centre, stops, then slides off the left
+ * edge and comes back -- on a loop.
+ *
+ * The owl (40x32) nearly fills the 42px-wide panel, so the bounce box is small
+ * (a few px each way); the motion is gentle and mostly diagonal/vertical.  Two
+ * predefined x-offset curves give the smooth slide off-screen (LEAVE) and back
+ * (RETURN).  Everything is expressed as an (dx,dy) offset from the owl's rest
+ * position that the panel draw simply applies to the sprite.
+ *
+ * The menu task wakes on the *_next_delay() cadence (fast while moving, long
+ * during the off-screen pause) and calls *_tick() to advance a frame.
+ */
+#define MAIN_MENU_LOGO_REST_X       1
+#define MAIN_MENU_LOGO_REST_Y       18
+#define MAIN_MENU_LOGO_OFFSCREEN    (-44)   /* fully hidden left of the panel */
+
+#define MAIN_MENU_LOGO_SLIDE_MS     70      /* per-frame interval for slides/settle */
+#define MAIN_MENU_LOGO_BOUNCE_MS    160     /* per-frame interval while bouncing (higher = slower) */
+#define MAIN_MENU_LOGO_BOUNCE_DUR   60000U  /* how long to bounce before settling (~1 min) */
+#define MAIN_MENU_LOGO_HOLD_MS      2000    /* still "breath" at centre between phases */
+#define MAIN_MENU_LOGO_GONE_MS      2500    /* pause off-screen before returning */
+#define MAIN_MENU_LOGO_SETTLE_FRAMES 8U     /* frames to ease from bounce back to centre */
+
+/* Bounce box: how far the owl may drift from its rest position (panel limits). */
+#define MAIN_MENU_LOGO_DX_MIN       (-3)
+#define MAIN_MENU_LOGO_DX_MAX       ( 2)
+#define MAIN_MENU_LOGO_DY_MIN       (-4)
+#define MAIN_MENU_LOGO_DY_MAX       ( 2)
+#define MAIN_MENU_LOGO_BOUNCE_SPEED  1      /* px per frame */
+
+/* Slide-in: ease-out from off-screen, then a -4 px recoil settle (all <= 0). */
+static const int8_t s_main_logo_in[] = {
+	-44, -33, -24, -16, -10, -5, -1, 0, -3, -4, -2, -1, 0
+};
+#define MAIN_MENU_LOGO_IN_FRAMES ((uint8_t)(sizeof(s_main_logo_in) / sizeof(s_main_logo_in[0])))
+
+/* Slide-out: ease-in, accelerating away to the left until off-screen. */
+static const int8_t s_main_logo_out[] = {
+	0, -2, -5, -9, -15, -23, -33, -44
+};
+#define MAIN_MENU_LOGO_OUT_FRAMES ((uint8_t)(sizeof(s_main_logo_out) / sizeof(s_main_logo_out[0])))
+
+typedef enum
+{
+	LOGO_PH_RETURN,           /* sliding in from the left edge */
+	LOGO_PH_HOLD_PRE_BOUNCE,  /* still beat at centre before bouncing */
+	LOGO_PH_BOUNCE,           /* DVD-style bounce inside the panel */
+	LOGO_PH_SETTLE,           /* easing from the bounce back to centre */
+	LOGO_PH_HOLD_PRE_LEAVE,   /* still beat at centre before leaving */
+	LOGO_PH_LEAVE,            /* sliding off the left edge */
+	LOGO_PH_GONE              /* paused off-screen */
+} logo_phase_t;
+
+static logo_phase_t s_main_logo_phase = LOGO_PH_RETURN;
+static uint8_t  s_main_logo_sub  = 0;        /* frame index within a slide/settle */
+static int8_t   s_main_logo_dx   = MAIN_MENU_LOGO_OFFSCREEN; /* applied x offset */
+static int8_t   s_main_logo_dy   = 0;        /* applied y offset */
+static int8_t   s_main_logo_vx   = MAIN_MENU_LOGO_BOUNCE_SPEED; /* bounce velocity */
+static int8_t   s_main_logo_vy   = MAIN_MENU_LOGO_BOUNCE_SPEED;
+static int8_t   s_main_logo_sx   = 0;        /* settle start x */
+static int8_t   s_main_logo_sy   = 0;        /* settle start y */
+static uint32_t s_main_logo_t0   = 0;        /* phase start tick (bounce/stop/gone) */
+
+void m1_main_menu_logo_anim_reset(void)
+{
+	s_main_logo_phase = LOGO_PH_RETURN;
+	s_main_logo_sub   = 0;
+	s_main_logo_dx    = MAIN_MENU_LOGO_OFFSCREEN;
+	s_main_logo_dy    = 0;
+	s_main_logo_vx    = MAIN_MENU_LOGO_BOUNCE_SPEED;
+	s_main_logo_vy    = MAIN_MENU_LOGO_BOUNCE_SPEED;
+}
+
+uint32_t m1_main_menu_logo_anim_next_delay_ms(void)
+{
+	switch (s_main_logo_phase)
+	{
+	case LOGO_PH_BOUNCE:          return MAIN_MENU_LOGO_BOUNCE_MS;
+	case LOGO_PH_HOLD_PRE_BOUNCE: return MAIN_MENU_LOGO_HOLD_MS;
+	case LOGO_PH_HOLD_PRE_LEAVE:  return MAIN_MENU_LOGO_HOLD_MS;
+	case LOGO_PH_GONE:            return MAIN_MENU_LOGO_GONE_MS;
+	default:                      return MAIN_MENU_LOGO_SLIDE_MS;
+	}
+}
+
+/* Linear interpolation toward 0 (used to ease the bounce back to centre). */
+static int8_t logo_ease_to_zero(int8_t from, uint8_t f, uint8_t total)
+{
+	return (int8_t)(((int)from * (int)(total - f)) / (int)total);
+}
+
+/* Advance one frame of the animation; returns true (a redraw is wanted). */
+bool m1_main_menu_logo_anim_tick(void)
+{
+	switch (s_main_logo_phase)
+	{
+	case LOGO_PH_RETURN:                      /* slide in from off-screen */
+		s_main_logo_sub++;
+		if (s_main_logo_sub >= MAIN_MENU_LOGO_IN_FRAMES)
+		{
+			s_main_logo_dx    = 0;
+			s_main_logo_dy    = 0;
+			s_main_logo_phase = LOGO_PH_HOLD_PRE_BOUNCE;  /* breathe before bouncing */
+		}
+		else
+		{
+			s_main_logo_dx = s_main_logo_in[s_main_logo_sub];
+		}
+		return true;
+
+	case LOGO_PH_HOLD_PRE_BOUNCE:             /* still beat, then start bouncing */
+		s_main_logo_phase = LOGO_PH_BOUNCE;
+		s_main_logo_vx    = MAIN_MENU_LOGO_BOUNCE_SPEED;
+		s_main_logo_vy    = MAIN_MENU_LOGO_BOUNCE_SPEED;
+		s_main_logo_t0    = HAL_GetTick();
+		return true;
+
+	case LOGO_PH_BOUNCE:                       /* DVD bounce inside the panel */
+	{
+		int nx, ny;
+		if ((HAL_GetTick() - s_main_logo_t0) >= MAIN_MENU_LOGO_BOUNCE_DUR)
+		{
+			s_main_logo_sx    = s_main_logo_dx;
+			s_main_logo_sy    = s_main_logo_dy;
+			s_main_logo_sub   = 0;
+			s_main_logo_phase = LOGO_PH_SETTLE;
+			return true;
+		}
+		nx = s_main_logo_dx + s_main_logo_vx;
+		ny = s_main_logo_dy + s_main_logo_vy;
+		if (nx <= MAIN_MENU_LOGO_DX_MIN) { nx = MAIN_MENU_LOGO_DX_MIN; s_main_logo_vx =  MAIN_MENU_LOGO_BOUNCE_SPEED; }
+		else if (nx >= MAIN_MENU_LOGO_DX_MAX) { nx = MAIN_MENU_LOGO_DX_MAX; s_main_logo_vx = -MAIN_MENU_LOGO_BOUNCE_SPEED; }
+		if (ny <= MAIN_MENU_LOGO_DY_MIN) { ny = MAIN_MENU_LOGO_DY_MIN; s_main_logo_vy =  MAIN_MENU_LOGO_BOUNCE_SPEED; }
+		else if (ny >= MAIN_MENU_LOGO_DY_MAX) { ny = MAIN_MENU_LOGO_DY_MAX; s_main_logo_vy = -MAIN_MENU_LOGO_BOUNCE_SPEED; }
+		s_main_logo_dx = (int8_t)nx;
+		s_main_logo_dy = (int8_t)ny;
+		return true;
+	}
+
+	case LOGO_PH_SETTLE:                       /* ease back to centre */
+		s_main_logo_sub++;
+		s_main_logo_dx = logo_ease_to_zero(s_main_logo_sx, s_main_logo_sub, MAIN_MENU_LOGO_SETTLE_FRAMES);
+		s_main_logo_dy = logo_ease_to_zero(s_main_logo_sy, s_main_logo_sub, MAIN_MENU_LOGO_SETTLE_FRAMES);
+		if (s_main_logo_sub >= MAIN_MENU_LOGO_SETTLE_FRAMES)
+		{
+			s_main_logo_dx    = 0;
+			s_main_logo_dy    = 0;
+			s_main_logo_phase = LOGO_PH_HOLD_PRE_LEAVE;  /* breathe before leaving */
+		}
+		return true;
+
+	case LOGO_PH_HOLD_PRE_LEAVE:               /* still beat, then leave */
+		s_main_logo_sub   = 0;
+		s_main_logo_phase = LOGO_PH_LEAVE;
+		return true;
+
+	case LOGO_PH_LEAVE:                        /* slide off the left edge */
+		s_main_logo_sub++;
+		s_main_logo_dy = 0;
+		if (s_main_logo_sub >= MAIN_MENU_LOGO_OUT_FRAMES)
+		{
+			s_main_logo_dx    = MAIN_MENU_LOGO_OFFSCREEN;
+			s_main_logo_phase = LOGO_PH_GONE;
+		}
+		else
+		{
+			s_main_logo_dx = s_main_logo_out[s_main_logo_sub];
+		}
+		return true;
+
+	case LOGO_PH_GONE:                         /* off-screen pause, then return */
+	default:
+		m1_main_menu_logo_anim_reset();        /* -> RETURN, slides back in */
+		return true;
+	}
+}
+
 static void m1_gui_draw_main_menu_panel(void)
 {
 	u8g2_DrawFrame(&m1_u8g2, MENU_MAIN_PANEL_X, MENU_MAIN_PANEL_Y, MENU_MAIN_PANEL_W, MENU_MAIN_PANEL_H);
 	u8g2_DrawFrame(&m1_u8g2, MENU_MAIN_PANEL_X + 1, MENU_MAIN_PANEL_Y + 1, MENU_MAIN_PANEL_W - 2, MENU_MAIN_PANEL_H - 2);
-	u8g2_DrawXBMP(&m1_u8g2, 1, 18, 40, 32, m1_logo_40x32);
+	u8g2_DrawXBMP(&m1_u8g2, MAIN_MENU_LOGO_REST_X + s_main_logo_dx,
+	              MAIN_MENU_LOGO_REST_Y + s_main_logo_dy, 40, 32, m1_logo_40x32);
 	u8g2_DrawHLine(&m1_u8g2, 6, 52, 30);
 	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
 	m1_draw_text(&m1_u8g2, 0, 59, MENU_MAIN_PANEL_W, "M1", TEXT_ALIGN_CENTER);

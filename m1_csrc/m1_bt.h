@@ -63,4 +63,8 @@ bt_connection_state_t *bt_get_connection_state(void);
 void bluetooth_set_badbt_name(void);
 #endif
 
+#ifdef M1_APP_WIFI_OFFENSIVE_ENABLE
+void bluetooth_ble_spam(void);
+#endif
+
 #endif /* M1_BT_H_ */

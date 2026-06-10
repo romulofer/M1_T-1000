@@ -1115,6 +1115,90 @@ void bluetooth_advertise(void)
 } // void bluetooth_advertise(void)
 
 
+#ifdef M1_APP_WIFI_OFFENSIVE_ENABLE
+/*============================================================================*/
+/**
+  * @brief BLE Spam — flood Apple/Google/Microsoft "device nearby" adverts.
+  *        UP/DOWN selects the vendor mix; OK starts/stops.
+  */
+/*============================================================================*/
+void bluetooth_ble_spam(void)
+{
+	S_M1_Buttons_Status this_button_status;
+	S_M1_Main_Q_t q_item;
+	BaseType_t ret;
+	bool active = false;
+	uint8_t mode_idx = 0; /* 0=All 1=Apple 2=Google 3=Microsoft */
+	static const char *const mode_names[4] = {"All", "Apple", "Google", "Microsoft"};
+	static const uint8_t mode_bits[4] = {0x07, 0x01, 0x02, 0x04};
+
+	/* Ensure ESP32 is up. */
+	if ( !m1_esp32_get_init_status() )
+	{
+		m1_esp32_init();
+	}
+	if ( !get_esp32_main_init_status() )
+	{
+		m1_u8g2_firstpage();
+		u8g2_DrawStr(&m1_u8g2, 6, 15, "Initializing...");
+		m1_u8g2_nextpage();
+		esp32_main_init();
+	}
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
+
+	while (1)
+	{
+		m1_u8g2_firstpage();
+		m1_draw_header_bar(&m1_u8g2, "BLE Spam", active ? "ACTIVE" : "Idle");
+		m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+
+		char line[24];
+		snprintf(line, sizeof(line), "Mode: %s", mode_names[mode_idx]);
+		m1_draw_text(&m1_u8g2, 8, 24, 114, line, TEXT_ALIGN_LEFT);
+		m1_draw_text(&m1_u8g2, 8, 36, 114,
+			active ? "Flooding... BACK=stop" : "OK to start", TEXT_ALIGN_LEFT);
+
+		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back",
+							active ? "Stop" : "Start", NULL);
+		m1_u8g2_nextpage();
+
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE || q_item.q_evt_type != Q_EVENT_KEYPAD) continue;
+		xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+
+		if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			if (active) { ble_esp_spam_stop(); active = false; }
+			xQueueReset(main_q_hdl);
+			m1_esp32_deinit();
+			return;
+		}
+		else if (this_button_status.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK && !active)
+		{
+			mode_idx = (mode_idx + 1) % 4;
+		}
+		else if (this_button_status.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK && !active)
+		{
+			mode_idx = (mode_idx + 3) % 4;
+		}
+		else if (this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			if (!active)
+			{
+				if (ble_esp_spam_start(mode_bits[mode_idx]) == SUCCESS)
+					active = true;
+			}
+			else
+			{
+				ble_esp_spam_stop(); active = false;
+			}
+		}
+	}
+} // void bluetooth_ble_spam(void)
+#endif /* M1_APP_WIFI_OFFENSIVE_ENABLE */
+
 
 /*============================================================================*/
 /*

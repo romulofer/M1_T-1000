@@ -520,19 +520,30 @@ S_M1_Menu_t menu_Wifi_Handshake_Capture =
     "HS Capture", wifi_handshake_capture, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
+S_M1_Menu_t menu_Wifi_Deauth_All =
+{
+    "Deauth All", wifi_deauth_all, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+
+S_M1_Menu_t menu_Wifi_Evil_Twin =
+{
+    "Evil Twin", wifi_evil_twin, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+
 S_M1_Menu_t menu_Wifi_Offensive_Tools =
 {
     .title = "Offensive Tools",
     .sub_func = menu_wifi_offensive_init,
     .deinit_func = NULL,
     .xkey_handler = NULL,
-    .num_submenu_items = 6,
+    .num_submenu_items = 8,
     .reserved = 0,
     .icon_ptr = NULL,
     .gui_menu_update = NULL,
-    .submenu = {&menu_Wifi_Deauth_Flood, &menu_Wifi_Beacon_Spam,
-                &menu_Wifi_Probe_Sniff, &menu_Wifi_PMKID_Capture,
-                &menu_Wifi_Karma, &menu_Wifi_Handshake_Capture}
+    .submenu = {&menu_Wifi_Deauth_Flood, &menu_Wifi_Deauth_All,
+                &menu_Wifi_Beacon_Spam, &menu_Wifi_Probe_Sniff,
+                &menu_Wifi_PMKID_Capture, &menu_Wifi_Karma,
+                &menu_Wifi_Handshake_Capture, &menu_Wifi_Evil_Twin}
 };
 #endif /* M1_APP_WIFI_OFFENSIVE_ENABLE */
 
@@ -596,10 +607,22 @@ S_M1_Menu_t menu_Bluetooth_BTName =
     "BT Name", bluetooth_set_badbt_name, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
+#ifdef M1_APP_WIFI_OFFENSIVE_ENABLE
+S_M1_Menu_t menu_Bluetooth_BLESpam =
+{
+    "BLE Spam", bluetooth_ble_spam, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+#endif
+
 S_M1_Menu_t menu_Bluetooth =
 {
+#ifdef M1_APP_WIFI_OFFENSIVE_ENABLE
+    "Bluetooth", menu_bluetooth_init, NULL, NULL, 7, 0, menu_m1_icon_bluetooth, NULL,
+    {&menu_Bluetooth_Scan, &menu_Bluetooth_Saved, &menu_Bluetooth_Advertise, &menu_Bluetooth_BadBT, &menu_Bluetooth_BTName, &menu_Bluetooth_BLESpam, &menu_Bluetooth_Info}
+#else
     "Bluetooth", menu_bluetooth_init, NULL, NULL, 6, 0, menu_m1_icon_bluetooth, NULL,
     {&menu_Bluetooth_Scan, &menu_Bluetooth_Saved, &menu_Bluetooth_Advertise, &menu_Bluetooth_BadBT, &menu_Bluetooth_BTName, &menu_Bluetooth_Info}
+#endif
 };
 #else
 S_M1_Menu_t menu_Bluetooth =
@@ -777,15 +800,34 @@ void menu_main_handler_task(void *param)
 	menu_main_init();
 	m1_device_stat.op_mode = M1_OPERATION_MODE_MENU_ON;
 	m1_device_stat.active_timestamp = HAL_GetTick();
+	m1_main_menu_logo_anim_reset();
 	m1_gui_menu_update(pthis_submenu, 0, MENU_UPDATE_INIT);
 	while(1)
 	{
+		uint32_t q_wait_ms = 30000;
+		/* On the main menu, wake on the logo animation cadence (fast while the
+		 * logo slides in, then a long pause between loops) instead of the
+		 * 30 s idle refresh. */
+		if (m1_device_stat.op_mode == M1_OPERATION_MODE_MENU_ON && menu_ctl.menu_level == 0)
+			q_wait_ms = m1_main_menu_logo_anim_next_delay_ms();
+
 		menu_update_stat = MENU_UPDATE_NONE;
-		ret = xQueueReceive(main_q_hdl, &q_item, pdMS_TO_TICKS(30000));
+		ret = xQueueReceive(main_q_hdl, &q_item, pdMS_TO_TICKS(q_wait_ms));
 		if ( ret!=pdTRUE )
 		{
 			if (m1_device_stat.op_mode == M1_OPERATION_MODE_MENU_ON)
-				m1_gui_menu_update(pthis_submenu, menu_ctl.menu_item_active, MENU_UPDATE_REFRESH);
+			{
+				/* At the main menu, only redraw when the logo actually moves. */
+				if (menu_ctl.menu_level == 0)
+				{
+					if (m1_main_menu_logo_anim_tick())
+						m1_gui_menu_update(pthis_submenu, menu_ctl.menu_item_active, MENU_UPDATE_REFRESH);
+				}
+				else
+				{
+					m1_gui_menu_update(pthis_submenu, menu_ctl.menu_item_active, MENU_UPDATE_REFRESH);
+				}
+			}
 			continue;
 		}
 		if ( q_item.q_evt_type!=Q_EVENT_KEYPAD )
@@ -876,6 +918,7 @@ void menu_main_handler_task(void *param)
 	    						sel_item = 0;
 	    						menu_update_stat = MENU_UPDATE_INIT;
 	    						m1_device_stat.op_mode = M1_OPERATION_MODE_MENU_ON;
+	    						m1_main_menu_logo_anim_reset(); // replay slide-in on entry
 	    					} // else if ( m1_device_stat.op_mode==M1_OPERATION_MODE_DISPLAY_ON )
 	    				} // if ( this_button_status.event[BUTTON_OK_KP_ID]==BUTTON_EVENT_CLICK )
 	                    break;
@@ -948,6 +991,8 @@ void menu_main_handler_task(void *param)
 							sel_item = menu_ctl.menu_item_active;
 							if ( menu_ctl.this_func != NULL )
 								menu_ctl.this_func();
+							if ( menu_ctl.menu_level==0 ) // returned to main menu
+								m1_main_menu_logo_anim_reset(); // replay slide-in
 							menu_update_stat = MENU_UPDATE_RESTORE;
 						}
 	    				break;

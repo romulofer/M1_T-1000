@@ -3033,6 +3033,138 @@ void wifi_deauth_flood(void)
 	}
 }
 
+/*============================================================================*/
+/**
+  * @brief Deauth-All — ESP scans, then broadcast-deauths every AP found.
+  *        No target entry needed; start/stop only.
+  */
+/*============================================================================*/
+void wifi_deauth_all(void)
+{
+	S_M1_Buttons_Status this_button_status;
+	S_M1_Main_Q_t q_item;
+	BaseType_t ret;
+	bool active = false;
+
+	if (!wifi_ensure_esp32_ready()) {
+		wifi_display_msg("ESP32", "not ready!");
+		vTaskDelay(pdMS_TO_TICKS(2000));
+		return;
+	}
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
+
+	while (1)
+	{
+		m1_u8g2_firstpage();
+		m1_draw_header_bar(&m1_u8g2, "Deauth All", active ? "ACTIVE" : "Idle");
+		m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+		m1_draw_text(&m1_u8g2, 8, 24, 114,
+			active ? "Sweeping all APs" : "Scan + deauth all", TEXT_ALIGN_LEFT);
+		m1_draw_text(&m1_u8g2, 8, 36, 114,
+			active ? "BACK to stop" : "OK to start", TEXT_ALIGN_LEFT);
+		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back",
+							active ? "Stop" : "Start", NULL);
+		m1_u8g2_nextpage();
+
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE || q_item.q_evt_type != Q_EVENT_KEYPAD) continue;
+		xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+
+		if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK) {
+			if (active) { wifi_esp_deauth_all_stop(); active = false; }
+			xQueueReset(main_q_hdl); return;
+		}
+		else if (this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK) {
+			if (!active) {
+				wifi_display_panel("Deauth All", "Scanning APs...",
+								   "Building targets", "Please wait...");
+				if (wifi_esp_deauth_all_start() == SUCCESS) {
+					active = true;
+				} else {
+					wifi_display_msg("Deauth All", "No APs / failed");
+					vTaskDelay(pdMS_TO_TICKS(1500));
+				}
+			} else {
+				wifi_esp_deauth_all_stop(); active = false;
+			}
+		}
+	}
+}
+
+/*============================================================================*/
+/**
+  * @brief Evil Twin — open rogue AP + captive portal. Edit SSID, pick channel,
+  *        start/stop. Credentials are captured on the ESP side.
+  */
+/*============================================================================*/
+void wifi_evil_twin(void)
+{
+	S_M1_Buttons_Status this_button_status;
+	S_M1_Main_Q_t q_item;
+	BaseType_t ret;
+	bool active = false;
+	char ssid[33] = "Free WiFi";
+	uint8_t channel = 6;
+
+	if (!wifi_ensure_esp32_ready()) {
+		wifi_display_msg("ESP32", "not ready!");
+		vTaskDelay(pdMS_TO_TICKS(2000));
+		return;
+	}
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
+
+	while (1)
+	{
+		m1_u8g2_firstpage();
+		m1_draw_header_bar(&m1_u8g2, "Evil Twin", active ? "ACTIVE" : "Setup");
+		m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+
+		char line[28];
+		snprintf(line, sizeof(line), "Ch:%u %s", channel, ssid);
+		m1_draw_text(&m1_u8g2, 8, 24, 114, line, TEXT_ALIGN_LEFT);
+		m1_draw_text(&m1_u8g2, 8, 36, 114,
+			active ? "Portal up. BACK=stop" : "OK=SSID  R=start", TEXT_ALIGN_LEFT);
+		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back",
+							active ? "Stop" : "SSID",
+							active ? NULL : arrowright_8x8);
+		m1_u8g2_nextpage();
+
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE || q_item.q_evt_type != Q_EVENT_KEYPAD) continue;
+		xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+
+		if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK) {
+			if (active) { wifi_esp_eviltwin_stop(); active = false; }
+			xQueueReset(main_q_hdl); return;
+		}
+		else if (this_button_status.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK && !active) {
+			if (channel < 14) channel++; else channel = 1;
+		}
+		else if (this_button_status.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK && !active) {
+			if (channel > 1) channel--; else channel = 14;
+		}
+		else if (this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK && !active) {
+			uint8_t len = m1_vkbs_get_data("Portal SSID", ssid);
+			if (len == 0) continue; /* cancelled */
+			if (len > 32) len = 32;
+			ssid[len] = '\0';
+		}
+		else if (this_button_status.event[BUTTON_RIGHT_KP_ID] == BUTTON_EVENT_CLICK && !active) {
+			wifi_display_panel("Evil Twin", "Starting portal", ssid, "Please wait...");
+			if (wifi_esp_eviltwin_start(ssid, channel) == SUCCESS) {
+				active = true;
+			} else {
+				wifi_display_msg("Evil Twin", "Start failed");
+				vTaskDelay(pdMS_TO_TICKS(1500));
+			}
+		}
+	}
+}
+
 #endif /* M1_APP_WIFI_OFFENSIVE_ENABLE */
 
 #endif /* M1_APP_WIFI_CONNECT_ENABLE */
