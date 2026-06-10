@@ -234,7 +234,7 @@ static int8_t CDC_Receive_FS(uint8_t *Buf, uint32_t *Len)
   size_t freeSpace;
   size_t SendBytesbf;
 
-  if (m1_usbcdc_mode == CDC_MODE_VCP)
+  if (m1_usbcdc_mode == CDC_MODE_VCP || m1_usbcdc_mode == CDC_MODE_UART_BRIDGE)
   {
     if (h_usb_rx_streambuf == NULL || *Len == 0) {
       /* Re-arm USB endpoint even for zero-length packets to prevent stalls */
@@ -368,7 +368,7 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
   QueueHandle_t q_item;
   portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
 
-  if (m1_usbcdc_mode == CDC_MODE_VCP)
+  if (m1_usbcdc_mode == CDC_MODE_VCP || m1_usbcdc_mode == CDC_MODE_UART_BRIDGE)
   {
     // After the USB transfer is complete, signal the task to start the next transfer.
     CDC_Signal_Next_Tx();

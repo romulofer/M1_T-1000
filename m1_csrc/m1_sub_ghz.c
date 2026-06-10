@@ -4816,6 +4816,7 @@ void sub_ghz_spectrum_analyzer(void)
     S_M1_Main_Q_t q_item;
     BaseType_t ret;
     int8_t rssi_values[SPECTRUM_BAR_COUNT];
+    int8_t peak_hold[SPECTRUM_BAR_COUNT];
     struct si446x_reply_GET_MODEM_STATUS_map *pmodemstat;
     char info_str[40];
 
@@ -4857,6 +4858,7 @@ void sub_ghz_spectrum_analyzer(void)
     span = sweep_spans[band_idx];
 
     menu_sub_ghz_init();
+    memset(peak_hold, -127, sizeof(peak_hold));
 
     /* Initialize radio */
     if (center_freq < 525000000UL && center_freq >= 284000000UL)
@@ -4894,6 +4896,10 @@ void sub_ghz_spectrum_analyzer(void)
             pmodemstat = SI446x_Get_ModemStatus(0x00);
             rssi = pmodemstat->CURR_RSSI / 2 - MODEM_RSSI_COMP - 70;
             rssi_values[i] = (int8_t)rssi;
+            if ((int8_t)rssi > peak_hold[i])
+            {
+                peak_hold[i] = (int8_t)rssi;
+            }
 
             if ((int8_t)rssi > peak_rssi)
             {
@@ -4933,6 +4939,22 @@ void sub_ghz_spectrum_analyzer(void)
                     u8g2_DrawVLine(&m1_u8g2, i, 44 - bar_h, bar_h);
             }
 
+            /* Draw peak hold trace */
+            for (i = 0; i < SPECTRUM_BAR_COUNT; i++)
+            {
+                int16_t ph_val = peak_hold[i];
+                if (ph_val > SPECTRUM_RSSI_MIN)
+                {
+                    if (ph_val > SPECTRUM_RSSI_MAX) ph_val = SPECTRUM_RSSI_MAX;
+                    uint8_t ph_h = (uint8_t)(((ph_val - SPECTRUM_RSSI_MIN) * SPECTRUM_BAR_HEIGHT) /
+                                             (SPECTRUM_RSSI_MAX - SPECTRUM_RSSI_MIN));
+                    if (ph_h > 0 && ph_h <= SPECTRUM_BAR_HEIGHT)
+                    {
+                        u8g2_DrawPixel(&m1_u8g2, i, 44 - ph_h);
+                    }
+                }
+            }
+
             /* Peak marker — small triangle above peak bar */
             if (peak_bar > 0 && peak_bar < 127)
             {
@@ -4957,6 +4979,11 @@ void sub_ghz_spectrum_analyzer(void)
                 u8g2_DrawStr(&m1_u8g2, 0, 64, "\x18\x19:Zoom OK:Peak L/R:Band");
 
         } while (u8g2_NextPage(&m1_u8g2));
+
+        /* Save parameters to detect changes and reset peak hold */
+        uint32_t prev_center = center_freq;
+        uint32_t prev_span = span;
+        uint8_t prev_band = band_idx;
 
         /* Check for button input (non-blocking with short timeout) */
         ret = xQueueReceive(main_q_hdl, &q_item, pdMS_TO_TICKS(100));
@@ -5025,6 +5052,11 @@ void sub_ghz_spectrum_analyzer(void)
                 }
                 custom_view = true;
             }
+        }
+
+        if (center_freq != prev_center || span != prev_span || band_idx != prev_band)
+        {
+            memset(peak_hold, -127, sizeof(peak_hold));
         }
     }
 
@@ -5352,6 +5384,10 @@ void sub_ghz_rssi_meter(void)
     char info_str[32];
     bool running = true;
     int16_t rssi, peak_rssi = -127;
+    int8_t rssi_history[128];
+
+    /* Initialize history buffer to floor level */
+    memset(rssi_history, -120, sizeof(rssi_history));
 
     menu_sub_ghz_init();
 
@@ -5366,10 +5402,15 @@ void sub_ghz_rssi_meter(void)
 
         if (rssi > peak_rssi) peak_rssi = rssi;
 
-        /* Compute bar width (0-120 px, mapped from -120 to -30 dBm) */
+        /* Append to history */
         int16_t clamped = rssi;
         if (clamped < -120) clamped = -120;
         if (clamped > -30) clamped = -30;
+
+        memmove(rssi_history, rssi_history + 1, 127);
+        rssi_history[127] = (int8_t)clamped;
+
+        /* Compute bar width (0-120 px, mapped from -120 to -30 dBm) */
         uint8_t bar_w = (uint8_t)(((clamped + 120) * 120) / 90);
 
         int16_t peak_clamped = peak_rssi;
@@ -5396,22 +5437,38 @@ void sub_ghz_rssi_meter(void)
 
             /* Current and peak dBm */
             snprintf(info_str, sizeof(info_str), "%ddBm  Pk:%ddBm", rssi, peak_rssi);
-            u8g2_DrawStr(&m1_u8g2, 0, 22, info_str);
+            u8g2_DrawStr(&m1_u8g2, 0, 20, info_str);
 
-            /* Bar graph background */
-            u8g2_DrawFrame(&m1_u8g2, 3, 26, 122, 14);
+            /* Mini bar graph background */
+            u8g2_DrawFrame(&m1_u8g2, 3, 21, 122, 4);
 
-            /* Current RSSI bar */
+            /* Current RSSI mini bar */
             if (bar_w > 0)
-                u8g2_DrawBox(&m1_u8g2, 4, 27, bar_w, 12);
+                u8g2_DrawBox(&m1_u8g2, 4, 22, bar_w, 2);
 
             /* Peak marker line */
             if (peak_x >= 4 && peak_x <= 124)
-                u8g2_DrawVLine(&m1_u8g2, peak_x, 25, 16);
+                u8g2_DrawVLine(&m1_u8g2, peak_x, 20, 6);
 
-            /* Scale labels */
-            u8g2_DrawStr(&m1_u8g2, 0, 52, "-120");
-            u8g2_DrawStr(&m1_u8g2, 105, 52, "-30");
+            /* Draw scrolling history graph (y=27 to y=55, height 28) */
+            u8g2_DrawFrame(&m1_u8g2, 0, 27, 128, 29);
+
+            /* Draw -75 dBm mid line (dotted) */
+            for (uint8_t x = 1; x < 127; x += 4)
+            {
+                u8g2_DrawPixel(&m1_u8g2, x, 41);
+            }
+
+            /* Draw history bars */
+            for (uint8_t x = 0; x < 128; x++)
+            {
+                int16_t h_val = rssi_history[x];
+                uint8_t h = (uint8_t)(((h_val + 120) * 27) / 90);
+                if (h > 0)
+                {
+                    u8g2_DrawVLine(&m1_u8g2, x, 55 - h, h);
+                }
+            }
 
             /* Controls */
             u8g2_DrawStr(&m1_u8g2, 0, 64, "L/R:Band OK:Reset \x18:Freq");
@@ -5435,6 +5492,7 @@ void sub_ghz_rssi_meter(void)
                 if (idx >= SUBGHZ_BAND_ORDER_COUNT) idx = 0;
                 subghz_scan_config.band = subghz_band_order[idx];
                 peak_rssi = -127;
+                memset(rssi_history, -120, sizeof(rssi_history));
                 sub_ghz_set_opmode(SUB_GHZ_OPMODE_RX, subghz_scan_config.band, 0, 0);
             }
             else if (this_button_status.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
@@ -5443,6 +5501,7 @@ void sub_ghz_rssi_meter(void)
                 if (idx > 0) idx--; else idx = SUBGHZ_BAND_ORDER_COUNT - 1;
                 subghz_scan_config.band = subghz_band_order[idx];
                 peak_rssi = -127;
+                memset(rssi_history, -120, sizeof(rssi_history));
                 sub_ghz_set_opmode(SUB_GHZ_OPMODE_RX, subghz_scan_config.band, 0, 0);
             }
             else if (this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
@@ -5458,6 +5517,7 @@ void sub_ghz_rssi_meter(void)
                     subghz_scan_config.band = SUB_GHZ_BAND_CUSTOM;
                 }
                 peak_rssi = -127;
+                memset(rssi_history, -120, sizeof(rssi_history));
                 sub_ghz_set_opmode(SUB_GHZ_OPMODE_RX, subghz_scan_config.band, 0, 0);
             }
         }

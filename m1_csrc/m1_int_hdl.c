@@ -239,7 +239,7 @@ void USART1_IRQHandler(void)
 {
 	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
 
-	if (m1_usbcdc_mode == CDC_MODE_VCP)
+	if (m1_usbcdc_mode == CDC_MODE_VCP || m1_usbcdc_mode == CDC_MODE_UART_BRIDGE)
 	{
 		/* USART1 rx and USB CDC tx */
 		HAL_UART_IRQHandler(&huart_logdb);

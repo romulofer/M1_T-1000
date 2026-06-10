@@ -281,10 +281,21 @@ S_M1_Menu_t menu_GPIO_Field_Detect =
     "Field Detect", field_detect_run, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
+S_M1_Menu_t menu_GPIO_USB_UART_Bridge =
+{
+    "USB-UART Bridge", gpio_usb_uart_bridge, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+
+S_M1_Menu_t menu_GPIO_Pin_Map =
+{
+    "Pin Map", gpio_pin_map_monitor, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+
 S_M1_Menu_t menu_GPIO =
 {
-    "GPIO", menu_gpio_init, menu_gpio_exit, gpio_xkey_handler, 4, 0, menu_m1_icon_gpio, gpio_gui_update,
-    {&menu_GPIO_GPIO_Manual_Control, &menu_GPIO_3_3V_On_GPIO, &menu_GPIO_5V_On_GPIO, &menu_GPIO_Field_Detect}
+    "GPIO", menu_gpio_init, menu_gpio_exit, gpio_xkey_handler, 6, 0, menu_m1_icon_gpio, gpio_gui_update,
+    {&menu_GPIO_GPIO_Manual_Control, &menu_GPIO_3_3V_On_GPIO, &menu_GPIO_5V_On_GPIO, &menu_GPIO_Field_Detect,
+     &menu_GPIO_USB_UART_Bridge, &menu_GPIO_Pin_Map}
 };
 
 /*------------------------------- > Settings ---------------------------------*/

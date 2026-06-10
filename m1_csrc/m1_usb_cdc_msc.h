@@ -34,7 +34,8 @@
 typedef enum
 {
   CDC_MODE_LOG_CLI = 0,
-  CDC_MODE_VCP
+  CDC_MODE_VCP,
+  CDC_MODE_UART_BRIDGE
 } enCdcMode;
 
 /*********************************************/
@@ -70,6 +71,8 @@ extern SemaphoreHandle_t usb2ser_tx_semaphore;
 extern volatile uint8_t usbcdc_rx_paused;
 extern volatile int8_t m1_USB_CDC_ready;
 extern volatile uint8_t tx_cptl_usart1;
+extern volatile uint32_t bridge_tx_bytes;
+extern volatile uint32_t bridge_rx_bytes;
 
 uint16_t usart_get_rx_data_length(void);
 void vUsb2SerTask(void *pvParameters);

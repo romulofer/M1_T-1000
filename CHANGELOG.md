@@ -15,6 +15,19 @@ All notable changes to the M1 T-1000 firmware will be documented in this file.
   inside its panel, pauses for a beat, then slides off the left edge and returns
   on a loop. Purely cosmetic: it animates only while the menu sits idle, and any
   keypress instantly restores the static menu
+- **Sub-GHz → RSSI Meter scrolling graph** — upgraded the RSSI Meter with a 128-sample
+  rolling history timeline graph showing signal strength over time alongside the
+  live numeric decibel/bar display
+- **Sub-GHz → Spectrum Analyzer Peak Hold** — added a persistent peak hold (max hold)
+  trace (drawn as single dots above the live scan bars) that records and retains the
+  maximum signal level seen on each frequency; automatically resets when center frequency,
+  span, or band changes
+- **GPIO → USB-UART Bridge** — transparent VCP-to-UART bridge routing USB CDC data
+  directly to USART1 (Pins 12/TX and 13/RX) at host-selected baud rates; automatically
+  provides 3.3V target power on Pin 9 and displays real-time TX/RX traffic counters
+- **GPIO → Pin Map** — graphical dual-column pin header layout displaying real-time
+  logic states (HIGH/LOW) and supporting on-the-fly pin mode configuration (Pull-Up,
+  Pull-Down, Floating)
 
 ### Fixed
 - **Bluetooth reliability** — Bad-BT, Bluetooth Advertise, and BT Info no longer

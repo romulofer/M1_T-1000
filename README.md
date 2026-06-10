@@ -14,8 +14,8 @@
 
 ### Sub-GHz Enhancements
 - **30+ protocol decoders** — Princeton, CAME, Nice Flo, Keeloq, Security+ 2.0, Linear, Holtek, Hormann, Marantec, Somfy, and many more
-- **Spectrum Analyzer** — visual RF spectrum display
-- **RSSI Meter** — real-time signal strength
+- **Spectrum Analyzer** — visual RF spectrum display with a persistent peak hold (max hold) trace
+- **RSSI Meter** — real-time signal strength with a 128-sample rolling history timeline graph
 - **Frequency Scanner** — find active frequencies
 - **Weather Station** — decode Oregon v2, Acurite, LaCrosse, Infactory sensors
 - **Radio Settings** — adjustable TX power, custom frequency entry
@@ -87,6 +87,10 @@
   - **Probe Sniff** — capture client probe requests
   - **Evil Twin** — open rogue AP with a DNS-hijack captive portal (editable SSID/channel)
 - **ESP32-C6 coprocessor** provides 2.4 GHz WiFi (WiFi 6) and Bluetooth LE 5.0
+
+### GPIO Enhancements
+- **Pin Map** — graphical dual-column pin header layout displaying real-time logic states (HIGH/LOW) with on-the-fly pin mode configuration (Pull-Up, Pull-Down, Floating)
+- **USB-UART Bridge** — transparent VCP-to-UART serial forwarding between USB CDC and USART1 (Pins 12/TX and 13/RX) at host-selected baud rates with automatic 3.3V target power on Pin 9 and real-time TX/RX traffic counters
 
 ### NFC/RFID Field Detector
 - Detect external 13.56 MHz NFC reader fields and ~125 kHz RFID reader fields

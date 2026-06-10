@@ -503,6 +503,11 @@ int _write(int file, char *data, int len)
 
 	UNUSED(file);
 
+	if (m1_usbcdc_mode == CDC_MODE_UART_BRIDGE)
+	{
+		return len; // Mute logs during bridge
+	}
+
 	xSemaphoreTake(mutex_log_write_trans, portMAX_DELAY);
 
     /* If RPC CLI capture is active, also copy to capture buffer */

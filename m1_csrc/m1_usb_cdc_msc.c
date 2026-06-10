@@ -91,6 +91,8 @@ uint8_t usb_tx_temp_buffer[USB_TX_BUF_SIZE];
 
 volatile uint16_t head_usart1_dma = 0;
 volatile uint16_t tail_usart1_dma = 0;
+volatile uint32_t bridge_tx_bytes = 0;
+volatile uint32_t bridge_rx_bytes = 0;
 
 volatile uint16_t head_usbcdc_rx = 0;
 volatile uint16_t tail_usbcdc_rx = 0;
@@ -284,6 +286,13 @@ void vSer2UsbTask(void *pvParameters)
             // Initialize flags and immediately return semaphore when transmission fails
             xSemaphoreGive(ser2usb_task_semaphore);
           }
+          else
+          {
+            if (m1_usbcdc_mode == CDC_MODE_UART_BRIDGE)
+            {
+              bridge_rx_bytes += received_bytes;
+            }
+          }
           // semaphore is given in TxCpltCallback when successful (not returned here)
         }
         else
@@ -391,12 +400,16 @@ void vUsb2SerTask(void *pvParameters)
 
     if (received_bytes > 0)
     {
+      if (m1_usbcdc_mode == CDC_MODE_UART_BRIDGE)
+      {
+        bridge_tx_bytes += received_bytes;
+      }
 #ifdef M1_APP_RPC_ENABLE
       /* RPC routing: once RPC mode is active, ALL data goes to the
        * RPC parser (frames may span multiple stream buffer reads).
        * Before RPC is active, detect the first sync byte to enter
        * RPC mode. */
-      if (m1_rpc_active || m1_rpc_is_sync(logdb_tx_buffer, received_bytes))
+      if (m1_usbcdc_mode != CDC_MODE_UART_BRIDGE && (m1_rpc_active || m1_rpc_is_sync(logdb_tx_buffer, received_bytes)))
       {
         m1_rpc_feed(logdb_tx_buffer, received_bytes);
 

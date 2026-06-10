@@ -18,6 +18,7 @@
 #include "stm32h5xx_hal.h"
 #include "main.h"
 #include "m1_gpio.h"
+#include "m1_usb_cdc_msc.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -264,47 +265,221 @@ void gpio_usb_uart_bridge(void)
 	S_M1_Buttons_Status this_button_status;
 	S_M1_Main_Q_t q_item;
 	BaseType_t ret;
+	enCdcMode prev_mode = m1_usbcdc_mode;
+	uint32_t last_bitrate = 0;
+	uint32_t last_tx = 0xFFFFFFFF;
+	uint32_t last_rx = 0xFFFFFFFF;
+	uint32_t last_draw_tick = 0;
 
-	m1_gui_let_update_fw();
+	/* Reset traffic counters */
+	bridge_tx_bytes = 0;
+	bridge_rx_bytes = 0;
 
-	while (1 ) // Main loop of this task
+	/* Enable external 3.3V power to the target board */
+	ext_power_3V_set(1);
+
+	/* Switch to UART bridge routing mode */
+	m1_usbcdc_mode = CDC_MODE_UART_BRIDGE;
+	m1_usb_cdc_comconfig();
+
+	bool running = true;
+	while (running)
 	{
-		;
-		; // Do other parts of this task here
-		;
-
-		// Wait for the notification from button_event_handler_task to subfunc_handler_task.
-		// This task is the sub-task of subfunc_handler_task.
-		// The notification is given in the form of an item in the main queue.
-		// So let read the main queue.
-		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
-		if (ret==pdTRUE)
+		uint32_t now = HAL_GetTick();
+		/* Redraw screen when host changes baud rate or data is transferred (rate-limited to 100ms) */
+		if ((linecoding.bitrate != last_bitrate || bridge_tx_bytes != last_tx || bridge_rx_bytes != last_rx) &&
+			(now - last_draw_tick >= 100 || linecoding.bitrate != last_bitrate))
 		{
-			if ( q_item.q_evt_type==Q_EVENT_KEYPAD )
-			{
-				// Notification is only sent to this task when there's any button activity,
-				// so it doesn't need to wait when reading the event from the queue
-				ret = xQueueReceive(button_events_q_hdl, &this_button_status, 0);
-				if ( this_button_status.event[BUTTON_BACK_KP_ID]==BUTTON_EVENT_CLICK ) // user wants to exit?
-				{
-					; // Do extra tasks here if needed
+			last_bitrate = linecoding.bitrate;
+			last_tx = bridge_tx_bytes;
+			last_rx = bridge_rx_bytes;
+			last_draw_tick = now;
 
-					xQueueReset(main_q_hdl); // Reset main q before return
-					break; // Exit and return to the calling task (subfunc_handler_task)
-				} // if ( m1_buttons_status[BUTTON_BACK_KP_ID]==BUTTON_EVENT_CLICK )
-				else
-				{
-					; // Do other things for this task, if needed
-				}
-			} // if ( q_item.q_evt_type==Q_EVENT_KEYPAD )
-			else
+			u8g2_FirstPage(&m1_u8g2);
+			do {
+				u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+				u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_B);
+				u8g2_DrawStr(&m1_u8g2, 2, 11, "USB-UART Bridge");
+
+				u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
+				char buf[32];
+				snprintf(buf, sizeof(buf), "Baud: %lu bps", last_bitrate);
+				u8g2_DrawStr(&m1_u8g2, 2, 23, buf);
+
+				snprintf(buf, sizeof(buf), "TX: %lu B  RX: %lu B", last_tx, last_rx);
+				u8g2_DrawStr(&m1_u8g2, 2, 35, buf);
+
+				u8g2_DrawStr(&m1_u8g2, 2, 47, "Pins: 12 (TX) / 13 (RX)");
+				u8g2_DrawStr(&m1_u8g2, 2, 59, "Press BACK to exit");
+			} while (u8g2_NextPage(&m1_u8g2));
+		}
+
+		/* Poll input to check for exit */
+		ret = xQueueReceive(main_q_hdl, &q_item, pdMS_TO_TICKS(50));
+		if (ret == pdTRUE && q_item.q_evt_type == Q_EVENT_KEYPAD)
+		{
+			ret = xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+			if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
 			{
-				; // Do other things for this task
+				running = false;
 			}
-		} // if (ret==pdTRUE)
-	} // while (1 ) // Main loop of this task
+		}
+	}
 
-} // void gpio_usb_uart_bridge(void)
+	/* Restore CDC mode and default console UART speed */
+	m1_usbcdc_mode = prev_mode;
+	linecoding.bitrate = 460800; // Restore default console baud rate
+	m1_usb_cdc_comconfig();
+
+	/* Power off external 3.3V */
+	ext_power_3V_set(0);
+
+	xQueueReset(main_q_hdl);
+	m1_app_send_q_message(main_q_hdl, Q_EVENT_MENU_EXIT);
+}
+
+static uint8_t read_ext_pin_state(uint8_t physical_pin)
+{
+	switch (physical_pin)
+	{
+		case 1:  return (HAL_GPIO_ReadPin(EN_EXT_5V_GPIO_Port, EN_EXT_5V_Pin) == GPIO_PIN_SET) ? 1 : 0;
+		case 2:  return (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_2) == GPIO_PIN_SET) ? 1 : 0;
+		case 3:  return (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_4) == GPIO_PIN_SET) ? 1 : 0;
+		case 4:  return (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_5) == GPIO_PIN_SET) ? 1 : 0;
+		case 5:  return (HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_6) == GPIO_PIN_SET) ? 1 : 0;
+		case 6:  return (HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_12) == GPIO_PIN_SET) ? 1 : 0;
+		case 7:  return (HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_13) == GPIO_PIN_SET) ? 1 : 0;
+		case 8:  return 0; // GND
+		case 9:  return (HAL_GPIO_ReadPin(EN_EXT_3V3_GPIO_Port, EN_EXT_3V3_Pin) == GPIO_PIN_SET) ? 1 : 0;
+		case 10: return (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_14) == GPIO_PIN_SET) ? 1 : 0;
+		case 11: return (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_13) == GPIO_PIN_SET) ? 1 : 0;
+		case 12: return (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9) == GPIO_PIN_SET) ? 1 : 0;
+		case 13: return (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10) == GPIO_PIN_SET) ? 1 : 0;
+		case 14: return (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_2) == GPIO_PIN_SET) ? 1 : 0;
+		case 15: return (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_3) == GPIO_PIN_SET) ? 1 : 0;
+		case 16: return (HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_0) == GPIO_PIN_SET) ? 1 : 0;
+		case 17: return (HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_1) == GPIO_PIN_SET) ? 1 : 0;
+		case 18: return 0; // GND
+		default: return 0;
+	}
+}
+
+static void set_ext_pins_to_input(uint32_t pull)
+{
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = pull;
+
+	/* PE2, PE4, PE5, PE6 */
+	GPIO_InitStruct.Pin = PE2_Pin | PE4_Pin | PE5_Pin | PE6_Pin;
+	HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+	/* PD12, PD13, PD0, PD1 */
+	GPIO_InitStruct.Pin = PD12_Pin | PD13_Pin | PD0_Pin | PD1_Pin;
+	HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+	/* PC2, PC3 */
+	GPIO_InitStruct.Pin = PC2_Pin | PC3_Pin;
+	HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+}
+
+void gpio_pin_map_monitor(void)
+{
+	S_M1_Buttons_Status this_button_status;
+	S_M1_Main_Q_t q_item;
+	BaseType_t ret;
+	uint32_t pull_mode = GPIO_PULLDOWN;
+	bool running = true;
+
+	/* Set testable pins to Input with weak pull-down by default */
+	set_ext_pins_to_input(pull_mode);
+
+	while (running)
+	{
+		u8g2_FirstPage(&m1_u8g2);
+		do {
+			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+			u8g2_SetFont(&m1_u8g2, u8g2_font_u8glib_4_tr);
+
+			/* Title + Pull Mode indicator */
+			char title_str[40];
+			snprintf(title_str, sizeof(title_str), "GPIO Monitor (%s)", (pull_mode == GPIO_PULLDOWN) ? "PD" : ((pull_mode == GPIO_PULLUP) ? "PU" : "Float"));
+			u8g2_DrawStr(&m1_u8g2, 0, 6, title_str);
+
+			/* Visual Layout dividers */
+			u8g2_DrawHLine(&m1_u8g2, 0, 8, 128);
+			u8g2_DrawVLine(&m1_u8g2, 63, 8, 56);
+
+			/* Left Column (Pins 1-9) */
+			static const char* left_labels[] = {
+				"1:5.0V", "2:PE2", "3:PE4", "4:PE5", "5:PE6",
+				"6:PD12", "7:PD13", "8:GND", "9:3.3V"
+			};
+			for (uint8_t i = 0; i < 9; i++)
+			{
+				uint8_t pin = i + 1;
+				uint8_t y_val = 14 + i * 6;
+				uint8_t state = read_ext_pin_state(pin);
+
+				if (state)
+					u8g2_DrawDisc(&m1_u8g2, 5, y_val - 2, 2, U8G2_DRAW_ALL);
+				else
+					u8g2_DrawCircle(&m1_u8g2, 5, y_val - 2, 2, U8G2_DRAW_ALL);
+
+				u8g2_DrawStr(&m1_u8g2, 11, y_val, left_labels[i]);
+			}
+
+			/* Right Column (Pins 10-18) */
+			static const char* right_labels[] = {
+				"10:SWCLK", "11:SWDIO", "12:TX(PA9)", "13:RX(PA10)", "14:PC2",
+				"15:PC3", "16:PD0", "17:PD1", "18:GND"
+			};
+			for (uint8_t i = 0; i < 9; i++)
+			{
+				uint8_t pin = 10 + i;
+				uint8_t y_val = 14 + i * 6;
+				uint8_t state = read_ext_pin_state(pin);
+
+				if (state)
+					u8g2_DrawDisc(&m1_u8g2, 68, y_val - 2, 2, U8G2_DRAW_ALL);
+				else
+					u8g2_DrawCircle(&m1_u8g2, 68, y_val - 2, 2, U8G2_DRAW_ALL);
+
+				u8g2_DrawStr(&m1_u8g2, 74, y_val, right_labels[i]);
+			}
+		} while (u8g2_NextPage(&m1_u8g2));
+
+		/* Non-blocking read */
+		ret = xQueueReceive(main_q_hdl, &q_item, pdMS_TO_TICKS(100));
+		if (ret == pdTRUE && q_item.q_evt_type == Q_EVENT_KEYPAD)
+		{
+			ret = xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+			if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
+			{
+				running = false;
+			}
+			else if (this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
+			{
+				/* Toggle pull configuration */
+				if (pull_mode == GPIO_PULLDOWN)
+					pull_mode = GPIO_PULLUP;
+				else if (pull_mode == GPIO_PULLUP)
+					pull_mode = GPIO_NOPULL;
+				else
+					pull_mode = GPIO_PULLDOWN;
+
+				set_ext_pins_to_input(pull_mode);
+				m1_buzzer_set(BUZZER_FREQ_01_KHZ, 20);
+			}
+		}
+	}
+
+	/* Restore pins to output-low state */
+	menu_gpio_init();
+
+	xQueueReset(main_q_hdl);
+	m1_app_send_q_message(main_q_hdl, Q_EVENT_MENU_EXIT);
+}
 
 
 
@@ -450,6 +625,16 @@ void gpio_gui_update(const S_M1_Menu_t *phmenu, uint8_t sel_item)
 
 			case 3:
 				m1_draw_text(&m1_u8g2, 6, 47, 116, "Detect NFC & RFID fields",
+				             TEXT_ALIGN_LEFT);
+				break;
+
+			case 4:
+				m1_draw_text(&m1_u8g2, 6, 47, 116, "Bridge USB to UART1 (PA9/10)",
+				             TEXT_ALIGN_LEFT);
+				break;
+
+			case 5:
+				m1_draw_text(&m1_u8g2, 6, 47, 116, "Live map of physical pin states",
 				             TEXT_ALIGN_LEFT);
 				break;
 

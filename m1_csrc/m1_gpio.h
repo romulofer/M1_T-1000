@@ -26,6 +26,7 @@ void gpio_manual_control(void);
 void gpio_3_3v_on_gpio(void);
 void gpio_5v_on_gpio(void);
 void gpio_usb_uart_bridge(void);
+void gpio_pin_map_monitor(void);
 
 void ext_power_5V_set(uint8_t set_mode);
 void ext_power_3V_set(uint8_t set_mode);
