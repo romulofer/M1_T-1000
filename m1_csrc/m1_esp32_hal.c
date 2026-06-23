@@ -13,11 +13,15 @@
 /*************************** I N C L U D E S **********************************/
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
 #include "stm32h5xx_hal.h"
 #include "main.h"
+#include "FreeRTOS.h"
+#include "timers.h"
 #include "m1_settings.h"
+#include "m1_system.h"
 #include "m1_esp32_hal.h"
 //#include "spi_drv.h"
 #include "m1_ring_buffer.h"
@@ -35,6 +39,10 @@
 #define ESP32_RX_BUFFER_LEN			4096
 
 #define M1_LOGDB_TAG				"ESP32"
+
+/* How long the ESP32-C6 may sit unused after a feature exit before its
+ * power is cut. Within this window re-entry is instant (no cold boot). */
+#define ESP32_IDLE_POWER_OFF_TIMEOUT_MS		(60u * 1000u)
 
 /*
 	GPDMA_CxTR2.REQSEL[7:0]		Selected GPDMA request
@@ -66,12 +74,20 @@ EXTI_HandleTypeDef esp32_exti_dataready;
 
 static uint8_t esp32_init_done = FALSE;
 static uint8_t esp32_uart_init_done = FALSE;
+/* TRUE whenever ESP32_EN has been driven low since the last m1_esp32_init():
+ * the C6 lost all state and must be given boot time before AT traffic.
+ * Starts TRUE because m1_sys_init() holds the C6 powered off at boot. */
+static volatile uint8_t esp32_powered_down = TRUE;
+static TimerHandle_t esp32_idle_off_timer = NULL;
 SemaphoreHandle_t sem_esp32_trans;
 
 S_M1_RingBuffer esp32_rb_hdl = {0};
 static uint8_t *pesp32_rx = NULL;
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
+
+extern bool get_esp32_main_init_status(void);
+extern bool esp32_at_wake_wait(void);
 
 void m1_esp32_init(void);
 void m1_esp32_reset_buffer(void);
@@ -81,6 +97,7 @@ uint8_t m1_esp32_get_init_status(void);
 void esp32_uartrx_handler(uint8_t rx_byte);
 void esp32_enable(void);
 void esp32_disable(void);
+static void esp32_idle_off_timer_cb(TimerHandle_t xTimer);
 static void esp32_UART_DMA_init(void);
 void esp32_UART_init(void);
 void esp32_UART_deinit(void);
@@ -100,6 +117,10 @@ static void esp32_SPI3_init(void);
 void m1_esp32_init(void)
 {
 	GPIO_InitTypeDef gpio_init_structure;
+
+	/* A feature is (re)attaching: cancel any pending idle power-off. */
+	if ( esp32_idle_off_timer != NULL )
+		xTimerStop(esp32_idle_off_timer, 0);
 
 	if ( !esp32_init_done )
 	{
@@ -149,6 +170,16 @@ void m1_esp32_init(void)
 		esp32_exti_handshake.FallingCallback = NULL;
 
 		esp32_enable();
+
+		if ( esp32_powered_down && get_esp32_main_init_status() )
+		{
+			/* The C6 was power cycled while the SPI AT layer (control task,
+			 * queues) stayed up, so esp32_main_init() will be skipped by its
+			 * done-flag and nothing else waits for the slave's boot. Without
+			 * this wait the caller's first AT command races the C6 boot. */
+			esp32_at_wake_wait();
+		}
+		esp32_powered_down = FALSE;
 	} // if ( !esp32_init_done )
 
 } // void m1_esp32_init(void)
@@ -178,8 +209,37 @@ void esp32_enable(void)
 void esp32_disable(void)
 {
 	HAL_GPIO_WritePin(GPIOA, ESP32_EN_Pin, GPIO_PIN_RESET);
+	esp32_powered_down = TRUE;
 	HAL_Delay(50);
 } // static void esp32_disable(void)
+
+
+
+/******************************************************************************/
+/**
+  * @brief Idle power-off: cuts ESP32-C6 power when no feature has used it
+  *        for ESP32_IDLE_POWER_OFF_TIMEOUT_MS after m1_esp32_deinit().
+  *        Runs in the FreeRTOS timer service task.
+  * @param xTimer timer handle
+  * @retval None
+  */
+/******************************************************************************/
+static void esp32_idle_off_timer_cb(TimerHandle_t xTimer)
+{
+	/* Never cut power mid-flash: the ESP32 firmware updaters drive ESP32_EN
+	 * directly as the loader reset pin. Retry after another idle period. */
+	if ( m1_device_stat.op_mode == M1_OPERATION_MODE_FIRMWARE_UPDATE )
+	{
+		xTimerStart(xTimer, 0);
+		return;
+	}
+
+	/* A feature re-attached just as the timer fired; leave the C6 alone. */
+	if ( esp32_init_done )
+		return;
+
+	esp32_disable();
+} // static void esp32_idle_off_timer_cb(TimerHandle_t xTimer)
 
 
 
@@ -444,9 +504,19 @@ void m1_esp32_deinit(void)
 #ifndef ESP32_UART_DISABLE
 		esp32_UART_deinit();
 #endif // #ifndef ESP32_UART_DISABLE
-		/* Keep the ESP32 powered so WiFi/BT re-entry does not force a cold boot
-		 * after every menu exit. Callers that truly need a hard reset can still
-		 * invoke esp32_disable() explicitly. */
+		/* Keep the ESP32 powered so WiFi/BT re-entry within the idle window
+		 * does not force a cold boot after every menu exit, but arm a one-shot
+		 * timer that cuts its power if no feature re-attaches in time.
+		 * m1_esp32_init() cancels the timer and, after a power-off, waits for
+		 * the C6 to answer AT again. */
+		if ( esp32_idle_off_timer == NULL )
+		{
+			esp32_idle_off_timer = xTimerCreate("c6idle",
+					pdMS_TO_TICKS(ESP32_IDLE_POWER_OFF_TIMEOUT_MS),
+					pdFALSE, NULL, esp32_idle_off_timer_cb);
+		}
+		if ( esp32_idle_off_timer != NULL )
+			xTimerStart(esp32_idle_off_timer, 0);
 
 		esp32_init_done = FALSE;
 		esp32_uart_init_done = FALSE;

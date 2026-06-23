@@ -117,23 +117,29 @@ static uint8_t rgb_brightness_index(uint8_t brightness)
 static void rgb_menu_draw(uint8_t sel, uint8_t bright_idx)
 {
     char badge[8];
+    char state_line[24];
     uint8_t visible_start = 0;
 
     if (sel >= RGB_VISIBLE_ITEMS && RGB_MENU_ITEMS > RGB_VISIBLE_ITEMS)
         visible_start = (uint8_t)(sel - RGB_VISIBLE_ITEMS + 1U);
 
     snprintf(badge, sizeof(badge), "%u/%u", (unsigned)(sel + 1U), (unsigned)RGB_MENU_ITEMS);
+    snprintf(state_line, sizeof(state_line), "%s %s R:%s",
+             rgb_bl_is_on() ? "On" : "Off",
+             s_brightness_labels[bright_idx],
+             rgb_bl_reactive_is_on() ? "On" : "Off");
 
     m1_u8g2_firstpage();
     u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
     m1_draw_header_bar(&m1_u8g2, "Backlight", badge);
     m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
     u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
+    m1_draw_text(&m1_u8g2, 8, 22, 112, state_line, TEXT_ALIGN_LEFT);
 
     for (uint8_t vi = 0; vi < RGB_VISIBLE_ITEMS && (visible_start + vi) < RGB_MENU_ITEMS; vi++)
     {
         uint8_t item = visible_start + vi;
-        uint8_t y = 30 + vi * 12;
+        uint8_t y = 34 + vi * 12;
         const char *label = rgb_menu_item_label(item);
         const char *value = rgb_menu_item_value(item, bright_idx);
 

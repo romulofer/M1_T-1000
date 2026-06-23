@@ -27,7 +27,7 @@
 
 #define ESP32_LINK_PAGE_COUNT       3U
 #define ESP32_LINK_ACTION_COUNT     8U
-#define ESP32_LINK_STATUS_COUNT     6U
+#define ESP32_LINK_STATUS_COUNT     7U
 #define ESP32_LINK_POLL_MS          120U
 #define ESP32_LINK_VISIBLE_ACTIONS  2U
 #define ESP32_LINK_VISIBLE_STATUS   4U
@@ -63,6 +63,7 @@ typedef struct
     char last_response[96];
     uint8_t last_rc;
     uint16_t runs;
+    uint32_t last_tick;
 } esp32_link_state_t;
 
 /***************************** V A R I A B L E S ******************************/
@@ -95,6 +96,13 @@ static void esp32_link_draw_status_page(const esp32_link_state_t *state, uint8_t
 static void esp32_link_draw_actions_page(uint8_t selected);
 static void esp32_link_draw_log_page(const esp32_link_state_t *state, uint8_t log_offset);
 static void esp32_link_run_action(esp32_link_state_t *state, esp32_link_action_t action);
+static bool esp32_link_get_basic_wifi_stats(char *resp, size_t resp_len);
+static void esp32_link_format_wifi_stats(const ctrl_cmd_t *app_req,
+                                         bool detailed,
+                                         char *resp,
+                                         size_t resp_len);
+static const char *esp32_link_mode_label(const char *status);
+static bool esp32_link_zero_addr(const char *value);
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
 
@@ -113,6 +121,7 @@ static void esp32_link_set_result(esp32_link_state_t *state,
     snprintf(state->last_status, sizeof(state->last_status), "%s", status ? status : "Idle");
     state->last_rc = rc;
     state->runs++;
+    state->last_tick = HAL_GetTick();
     esp32_link_sanitize_text(response ? response : "No response", state->last_response, sizeof(state->last_response));
 }
 
@@ -227,8 +236,14 @@ static void esp32_link_draw_status_page(const esp32_link_state_t *state, uint8_t
 {
     char badge[8];
     char status_lines[ESP32_LINK_STATUS_COUNT][32];
+    uint32_t age_sec = 0U;
     uint8_t end_line;
     static const uint8_t line_y[ESP32_LINK_VISIBLE_STATUS] = {22U, 30U, 38U, 46U};
+
+    if (state->last_tick != 0U)
+    {
+        age_sec = (HAL_GetTick() - state->last_tick) / 1000U;
+    }
 
     snprintf(badge, sizeof(badge), "1/%u", (unsigned)ESP32_LINK_PAGE_COUNT);
     snprintf(status_lines[0], sizeof(status_lines[0]), "HAL: %s",
@@ -244,6 +259,8 @@ static void esp32_link_draw_status_page(const esp32_link_state_t *state, uint8_t
     snprintf(status_lines[5], sizeof(status_lines[5]), "rc=%u  runs=%u",
              (unsigned)state->last_rc,
              (unsigned)state->runs);
+    snprintf(status_lines[6], sizeof(status_lines[6]), "Age: %lus",
+             (unsigned long)age_sec);
 
     if (status_offset >= ESP32_LINK_STATUS_COUNT)
     {
@@ -484,13 +501,11 @@ static void esp32_link_run_action(esp32_link_state_t *state, esp32_link_action_t
             ret = wifi_get_stats(&app_req);
             if (ret == SUCCESS)
             {
-                snprintf(resp, sizeof(resp), "%s %s %d dBm ch%d ip %s bssid %s",
-                         (app_req.u.wifi_ap_config.band_mode != 0) ? "Connected" : "Idle",
-                         app_req.u.wifi_ap_config.status[0] ? app_req.u.wifi_ap_config.status : "UNK",
-                         app_req.u.wifi_ap_config.rssi,
-                         app_req.u.wifi_ap_config.channel,
-                         app_req.u.wifi_ap_config.out_mac[0] ? app_req.u.wifi_ap_config.out_mac : "0.0.0.0",
-                         app_req.u.wifi_ap_config.bssid[0] ? (const char *)app_req.u.wifi_ap_config.bssid : "none");
+                esp32_link_format_wifi_stats(&app_req, true, resp, sizeof(resp));
+            }
+            else if (esp32_link_get_basic_wifi_stats(resp, sizeof(resp)))
+            {
+                ret = SUCCESS;
             }
             esp32_link_set_result(state,
                                   "WiFi Stats",
@@ -566,6 +581,157 @@ static void esp32_link_run_action(esp32_link_state_t *state, esp32_link_action_t
             esp32_link_set_result(state, "ESP32 Link", "Unknown", ERROR, "Unsupported action.");
             break;
     }
+}
+
+
+static bool esp32_link_get_basic_wifi_stats(char *resp, size_t resp_len)
+{
+    ctrl_cmd_t mode_req = CTRL_CMD_DEFAULT_REQ();
+    ctrl_cmd_t ip_req = CTRL_CMD_DEFAULT_REQ();
+    ctrl_cmd_t basic_req = CTRL_CMD_DEFAULT_REQ();
+    bool mode_ok;
+    bool ip_ok;
+    bool has_ip;
+
+    mode_req.cmd_timeout_sec = 8;
+    ip_req.cmd_timeout_sec = 8;
+
+    mode_ok = (wifi_get_mode(&mode_req) == SUCCESS);
+    ip_ok = (wifi_get_ip(&ip_req) == SUCCESS);
+    if (!mode_ok && !ip_ok)
+    {
+        return false;
+    }
+
+    has_ip = ip_ok
+             && ip_req.u.wifi_ap_config.status[0]
+             && !esp32_link_zero_addr(ip_req.u.wifi_ap_config.status);
+
+    basic_req.u.wifi_ap_config.band_mode = has_ip ? 1 : 0;
+    if (mode_ok)
+    {
+        strncpy(basic_req.u.wifi_ap_config.status,
+                mode_req.u.wifi_ap_config.status,
+                STATUS_LENGTH - 1U);
+        basic_req.u.wifi_ap_config.status[STATUS_LENGTH - 1U] = '\0';
+    }
+    if (has_ip)
+    {
+        strncpy(basic_req.u.wifi_ap_config.out_mac,
+                ip_req.u.wifi_ap_config.status,
+                MAX_MAC_STR_SIZE - 1U);
+        basic_req.u.wifi_ap_config.out_mac[MAX_MAC_STR_SIZE - 1U] = '\0';
+        strncpy((char *)basic_req.u.wifi_ap_config.bssid,
+                ip_req.u.wifi_ap_config.out_mac,
+                BSSID_STR_SIZE - 1U);
+        basic_req.u.wifi_ap_config.bssid[BSSID_STR_SIZE - 1U] = '\0';
+    }
+
+    esp32_link_format_wifi_stats(&basic_req, false, resp, resp_len);
+    return true;
+}
+
+
+static void esp32_link_format_wifi_stats(const ctrl_cmd_t *app_req,
+                                         bool detailed,
+                                         char *resp,
+                                         size_t resp_len)
+{
+    const wifi_ap_config_t *cfg = &app_req->u.wifi_ap_config;
+    bool connected = (cfg->band_mode != 0)
+                     && cfg->out_mac[0]
+                     && !esp32_link_zero_addr(cfg->out_mac);
+    const char *addr_label = detailed ? "bssid" : "mac";
+    const char *addr_value = "none";
+    char rssi_text[12];
+    char channel_text[8];
+
+    if (connected && cfg->bssid[0] && !esp32_link_zero_addr((const char *)cfg->bssid))
+    {
+        addr_value = (const char *)cfg->bssid;
+    }
+
+    if (connected && cfg->rssi != 0)
+    {
+        snprintf(rssi_text, sizeof(rssi_text), "%ddBm", cfg->rssi);
+    }
+    else
+    {
+        snprintf(rssi_text, sizeof(rssi_text), "N/A");
+    }
+
+    if (connected && cfg->channel > 0 && cfg->channel <= 255)
+    {
+        snprintf(channel_text, sizeof(channel_text), "ch%u", (unsigned)cfg->channel);
+    }
+    else
+    {
+        snprintf(channel_text, sizeof(channel_text), "chN/A");
+    }
+
+    snprintf(resp, resp_len, "%s %s %s %s %s ip %s %s %s",
+             detailed ? "Detailed" : "Basic",
+             connected ? "Connected" : "Idle",
+             esp32_link_mode_label(cfg->status),
+             rssi_text,
+             channel_text,
+             connected ? cfg->out_mac : "N/A",
+             addr_label,
+             addr_value);
+}
+
+
+static const char *esp32_link_mode_label(const char *status)
+{
+    if (status == NULL || status[0] == '\0')
+    {
+        return "Unknown";
+    }
+    if (strcmp(status, "STA") == 0)
+    {
+        return "Station";
+    }
+    if (strcmp(status, "AP") == 0)
+    {
+        return "SoftAP";
+    }
+    if (strcmp(status, "APSTA") == 0)
+    {
+        return "AP+STA";
+    }
+    if (strcmp(status, "NULL") == 0)
+    {
+        return "Off";
+    }
+
+    return status;
+}
+
+
+static bool esp32_link_zero_addr(const char *value)
+{
+    bool saw_zero = false;
+
+    if (value == NULL || value[0] == '\0')
+    {
+        return true;
+    }
+
+    for (uint8_t i = 0; value[i] != '\0' && i < 18U; i++)
+    {
+        if (value[i] == '0')
+        {
+            saw_zero = true;
+            continue;
+        }
+        if (value[i] == '.' || value[i] == ':')
+        {
+            continue;
+        }
+        return false;
+    }
+
+    return saw_zero;
 }
 
 

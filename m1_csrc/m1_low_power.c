@@ -17,6 +17,7 @@
 #include "FreeRTOS.h"
 #include "main.h"
 #include "cmsis_os.h"
+#include "task.h"
 #include "m1_low_power.h"
 
 /*************************** D E F I N E S ************************************/
@@ -61,7 +62,13 @@ void vPortSetupTimerInterrupt( void );
 void PreSleepProcessing(uint32_t ulExpectedIdleTime)
 {
 /* place for user code */
-	HAL_SuspendTick();
+	/* Do NOT suspend the HAL tick (TIM6) here. It drives HAL_GetTick(), which
+	 * ~40 places in the firmware use for UI/timeout pacing. Suspending it during
+	 * tickless idle froze HAL_GetTick() for the whole sleep (it was never
+	 * corrected on resume), so HAL_GetTick-based timing drifted badly when the
+	 * device idled unplugged -> sluggish UI. Leaving TIM6 running keeps the HAL
+	 * clock accurate; its 1 ms IRQ caps each sleep at ~1 ms (light idle sleep). */
+	//HAL_SuspendTick();
 	//tick_1 = SYSTICK_CURRENT_VALUE_REG;
 	systick_count_1 = xTaskGetTickCount();
 	//ulExpectedIdleTime = prvGetExpectedIdleTime();
@@ -89,42 +96,19 @@ void PostSleepProcessing(uint32_t ulExpectedIdleTime)
 //	HAL_LPTIM_TimeOut_Stop_IT(&hlptim1);
 	//tick_2 = SYSTICK_CURRENT_VALUE_REG;
 	systick_count_2 = xTaskGetTickCount();
-	HAL_ResumeTick();
+	/* HAL tick (TIM6) was left running in PreSleepProcessing, so no resume is
+	 * needed and HAL_GetTick() stayed accurate across the sleep. */
+	//HAL_ResumeTick();
 } // void PostSleepProcessing(uint32_t ulExpectedIdleTime)
 
 
 
-#ifndef M1_MYTICKLESS_USE_RTC
-
-/*============================================================================*/
-/*
- *  Generated when configUSE_TICKLESS_IDLE == 2.
- * 	Function called in tasks.c (in portTASK_FUNCTION).
- * 	TO BE COMPLETED or TO BE REPLACED by a user one, overriding that weak one.
- */
-/*============================================================================*/
-void vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime )
-{
-
-}
-
-#else
-
-
-/*============================================================================*/
-/*
- *  Generated when configUSE_TICKLESS_IDLE == 2.
- * 	Function called in tasks.c (in portTASK_FUNCTION).
- * 	TO BE COMPLETED or TO BE REPLACED by a user one, overriding that weak one.
- */
-/*============================================================================*/
-/*
-void vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime )
-{
-
-} // void vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime )
-*/
-#endif // #ifdef M1_MYTICKLESS_USE_RTC
+/* vPortSuppressTicksAndSleep() is provided by the CM33 port (port.c) with
+ * configUSE_TICKLESS_IDLE == 1: it reprograms SysTick for the expected idle
+ * period, enters WFI, and corrects the tick count on wake. It calls
+ * PreSleepProcessing()/PostSleepProcessing() above via the
+ * configPRE/POST_SLEEP_PROCESSING macros to pause the TIM6 HAL timebase,
+ * which would otherwise wake the core every 1 ms. */
 
 
 

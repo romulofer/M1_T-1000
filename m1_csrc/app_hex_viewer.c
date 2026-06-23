@@ -49,6 +49,8 @@ static hex_viewer_state_t g_hex_viewer;
 
 static void hex_viewer_close(void);
 static bool hex_viewer_pick_file(hex_viewer_state_t *st);
+static uint32_t hex_viewer_last_page_offset(uint32_t file_size);
+static void hex_viewer_clamp_offset(hex_viewer_state_t *st);
 static void hex_viewer_ascii_preview(const uint8_t *buf, uint16_t len, char *out, size_t out_len);
 static void hex_viewer_format_row(const uint8_t *buf, uint16_t len, uint32_t row_offset, char *out, size_t out_len);
 static void hex_viewer_draw(const hex_viewer_state_t *st);
@@ -61,6 +63,34 @@ static void hex_viewer_close(void)
     {
         f_close(&g_hex_viewer.file);
         g_hex_viewer.file_open = false;
+    }
+}
+
+
+static uint32_t hex_viewer_last_page_offset(uint32_t file_size)
+{
+    if (file_size <= HEX_VIEWER_PAGE_BYTES)
+    {
+        return 0U;
+    }
+
+    return ((file_size - 1U) / HEX_VIEWER_PAGE_BYTES) * HEX_VIEWER_PAGE_BYTES;
+}
+
+
+static void hex_viewer_clamp_offset(hex_viewer_state_t *st)
+{
+    uint32_t last_offset;
+
+    if (st == NULL)
+    {
+        return;
+    }
+
+    last_offset = hex_viewer_last_page_offset(st->file_size);
+    if (st->offset > last_offset)
+    {
+        st->offset = last_offset;
     }
 }
 
@@ -98,6 +128,7 @@ static bool hex_viewer_pick_file(hex_viewer_state_t *st)
     st->file_size = f_size(&st->file);
     st->offset = 0U;
     st->file_open = true;
+    hex_viewer_clamp_offset(st);
     return true;
 }
 
@@ -114,7 +145,7 @@ static void hex_viewer_ascii_preview(const uint8_t *buf, uint16_t len, char *out
     count = (len < (uint16_t)(out_len - 1U)) ? len : (uint16_t)(out_len - 1U);
     for (uint16_t i = 0U; i < count; i++)
     {
-        out[i] = isprint((int)buf[i]) ? (char)buf[i] : '.';
+        out[i] = (buf[i] >= 0x20U && buf[i] <= 0x7EU) ? (char)buf[i] : '.';
     }
     out[count] = '\0';
 }
@@ -147,6 +178,8 @@ static void hex_viewer_draw(const hex_viewer_state_t *st)
     char row_buf[24];
     char ascii_buf[20];
     char status_buf[24];
+    uint32_t page_count;
+    uint32_t page_num;
     uint32_t row_offset;
     uint8_t row_y;
     uint16_t row_len;
@@ -165,13 +198,35 @@ static void hex_viewer_draw(const hex_viewer_state_t *st)
         f_read((FIL *)&st->file, page_buf, sizeof(page_buf), &br);
     }
 
-    snprintf(badge, sizeof(badge), "%04lX/%04lX",
-             (unsigned long)(st->offset & 0xFFFFUL),
-             (unsigned long)(st->file_size & 0xFFFFUL));
+    page_count = (st->file_size == 0U) ? 1U :
+        ((st->file_size + HEX_VIEWER_PAGE_BYTES - 1U) / HEX_VIEWER_PAGE_BYTES);
+    page_num = (st->offset / HEX_VIEWER_PAGE_BYTES) + 1U;
+    if (page_num > page_count)
+    {
+        page_num = page_count;
+    }
+    if (page_count <= 9999U)
+    {
+        snprintf(badge, sizeof(badge), "P%lu/%lu",
+                 (unsigned long)page_num,
+                 (unsigned long)page_count);
+    }
+    else
+    {
+        snprintf(badge, sizeof(badge), "Pbig");
+    }
     if (st->file_open)
     {
-        strncpy(status_buf, st->name, sizeof(status_buf) - 1U);
-        status_buf[sizeof(status_buf) - 1U] = '\0';
+        if (st->file_size == 0U)
+        {
+            snprintf(status_buf, sizeof(status_buf), "Empty: %.15s", st->name);
+        }
+        else
+        {
+            snprintf(status_buf, sizeof(status_buf), "%.15s @%lu",
+                     st->name,
+                     (unsigned long)st->offset);
+        }
     }
     else
     {
@@ -206,8 +261,8 @@ static void hex_viewer_draw(const hex_viewer_state_t *st)
         row_y = (uint8_t)(row_y + 8U);
     }
 
-    m1_draw_text(&m1_u8g2, 8, 50, 114, ascii_buf[0] ? ascii_buf : "ASCII preview", TEXT_ALIGN_LEFT);
-    m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Browse", arrowright_8x8);
+    m1_draw_text(&m1_u8g2, 8, 50, 114, ascii_buf[0] ? ascii_buf : "ASCII: none", TEXT_ALIGN_LEFT);
+    m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Pg-", "Browse", arrowright_8x8);
     m1_u8g2_nextpage();
 }
 
@@ -242,12 +297,14 @@ void app_hex_viewer_run(void)
             {
                 g_hex_viewer.offset = 0U;
             }
+            hex_viewer_clamp_offset(&g_hex_viewer);
         }
         else if (btn == GAME_BTN_DOWN)
         {
-            if ((g_hex_viewer.offset + HEX_VIEWER_ROW_BYTES) < g_hex_viewer.file_size)
+            if (g_hex_viewer.offset < hex_viewer_last_page_offset(g_hex_viewer.file_size))
             {
                 g_hex_viewer.offset += HEX_VIEWER_ROW_BYTES;
+                hex_viewer_clamp_offset(&g_hex_viewer);
             }
         }
         else if (btn == GAME_BTN_LEFT)
@@ -260,12 +317,14 @@ void app_hex_viewer_run(void)
             {
                 g_hex_viewer.offset = 0U;
             }
+            hex_viewer_clamp_offset(&g_hex_viewer);
         }
         else if (btn == GAME_BTN_RIGHT)
         {
-            if ((g_hex_viewer.offset + HEX_VIEWER_PAGE_BYTES) < g_hex_viewer.file_size)
+            if (g_hex_viewer.offset < hex_viewer_last_page_offset(g_hex_viewer.file_size))
             {
                 g_hex_viewer.offset += HEX_VIEWER_PAGE_BYTES;
+                hex_viewer_clamp_offset(&g_hex_viewer);
             }
         }
         else if (btn == GAME_BTN_OK)

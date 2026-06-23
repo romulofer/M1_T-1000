@@ -48,6 +48,7 @@ typedef struct
     uint32_t deadline_ms;
     uint32_t last_alert_ms;
     uint8_t alert_count;
+    uint16_t sessions;
     dab_timer_mode_t mode;
 } dab_timer_state_t;
 
@@ -112,6 +113,10 @@ static void dab_timer_sync(dab_timer_state_t *st)
         st->mode = DAB_TIMER_ALERT;
         st->alert_count = 1U;
         st->last_alert_ms = now;
+        if (st->sessions < 999U)
+        {
+            st->sessions++;
+        }
         m1_buzzer_set(BUZZER_FREQ_02_KHZ, 120);
         return;
     }
@@ -174,16 +179,23 @@ static void dab_timer_draw(const dab_timer_state_t *st)
             snprintf(status_buf, sizeof(status_buf), "Paused at %us", st->duration_sec);
             break;
         case DAB_TIMER_ALERT:
-            snprintf(status_buf, sizeof(status_buf), "DAB READY");
+            snprintf(status_buf, sizeof(status_buf), "DAB READY #%u", st->sessions);
             flash = ((HAL_GetTick() / 250U) & 1U) != 0U;
             break;
         case DAB_TIMER_IDLE:
         default:
-            snprintf(status_buf, sizeof(status_buf), "Set time %us", st->duration_sec);
+            if (st->sessions > 0U)
+            {
+                snprintf(status_buf, sizeof(status_buf), "Set %us #%u", st->duration_sec, st->sessions);
+            }
+            else
+            {
+                snprintf(status_buf, sizeof(status_buf), "Set time %us", st->duration_sec);
+            }
             break;
     }
 
-    total_ms = (uint16_t)(st->duration_sec * 1000U);
+    total_ms = (uint32_t)st->duration_sec * 1000U;
     if (total_ms > 0U && st->remaining_ms <= total_ms)
     {
         fill_w = (uint16_t)((96U * (total_ms - st->remaining_ms)) / total_ms);
@@ -244,6 +256,7 @@ void app_dab_timer_run(void)
     game_button_t btn;
 
     g_dab_timer.duration_sec = DAB_TIMER_DEFAULT_SEC;
+    g_dab_timer.sessions = 0U;
     g_dab_timer.mode = DAB_TIMER_IDLE;
     dab_timer_reset_countdown(&g_dab_timer);
     dab_timer_draw(&g_dab_timer);

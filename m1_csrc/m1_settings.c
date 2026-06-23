@@ -315,18 +315,211 @@ void settings_power(void)
   * @retval
   */
 /*============================================================================*/
-static void settings_system_draw(void)
-{
-    char detail[32];
 
-    snprintf(detail, sizeof(detail), "ESP32 at boot: %s", m1_esp32_auto_init ? "ON" : "OFF");
+/*============================================================================*/
+/**
+  * @brief  Manual date/time set screen.
+  *         Fields: Year Month Day Hour Min Sec
+  *         Left/Right = move field, Up/Down = increment/decrement, OK = save, BACK = cancel
+  */
+/*============================================================================*/
+static void settings_set_time_draw(const m1_time_t *dt, uint8_t field)
+{
+    char line[32];
+
     m1_u8g2_firstpage();
-    m1_draw_status_panel(&m1_u8g2, "Settings", "System",
-                      NULL, 0, 0,
-                      detail,
-                      "Controls WiFi/BT auto init",
-                      "Toggle with OK or LEFT/RIGHT");
-    m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Toggle", arrowright_8x8);
+    u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+    m1_draw_header_bar(&m1_u8g2, "Set Time", "OK=Save");
+
+    /* Date line: YYYY-MM-DD */
+    snprintf(line, sizeof(line), "%04u-%02u-%02u",
+             (unsigned)dt->year, (unsigned)dt->month, (unsigned)dt->day);
+    u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+    m1_draw_text(&m1_u8g2, 8, 28, 114, line, TEXT_ALIGN_LEFT);
+
+    /* Time line: HH:MM:SS */
+    snprintf(line, sizeof(line), "%02u:%02u:%02u",
+             (unsigned)dt->hour, (unsigned)dt->minute, (unsigned)dt->second);
+    u8g2_SetFont(&m1_u8g2, M1_DISP_LARGE_FONT_2B);
+    m1_draw_text(&m1_u8g2, 8, 44, 114, line, TEXT_ALIGN_LEFT);
+
+    /* Cursor underline for active field:
+     * Fields 0-2 are in the date line (FUNC font ~6px wide per char)
+     * Fields 3-5 are in the time line (LARGE font ~12px wide per char) */
+    static const uint8_t date_field_x[] = { 8, 38, 56 };   /* Y M D start x */
+    static const uint8_t time_field_x[] = { 8, 44, 80 };   /* H M S start x */
+
+    u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+    if (field < 3U)
+    {
+        /* underline 2-char date segment */
+        u8g2_DrawHLine(&m1_u8g2, date_field_x[field], 30, 12);
+    }
+    else
+    {
+        /* underline 2-char time segment */
+        u8g2_DrawHLine(&m1_u8g2, time_field_x[field - 3U], 46, 23);
+    }
+
+    m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Cancel", "Field", arrowright_8x8);
+    m1_u8g2_nextpage();
+}
+
+static uint8_t settings_dim(uint16_t year, uint8_t month)
+{
+    static const uint8_t mdays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    if (month < 1U || month > 12U) return 30U;
+    uint8_t d = mdays[month - 1U];
+    if (month == 2U && year % 4U == 0U && (year % 100U != 0U || year % 400U == 0U)) d = 29U;
+    return d;
+}
+
+void settings_set_time(void)
+{
+    S_M1_Buttons_Status this_button_status;
+    S_M1_Main_Q_t q_item;
+    BaseType_t ret;
+    m1_time_t dt;
+    uint8_t field = 0;   /* 0=Year 1=Month 2=Day 3=Hour 4=Min 5=Sec */
+
+    m1_get_datetime(&dt);
+    /* Clamp to sane defaults if RTC is uninitialised */
+    if (dt.year < 2020U || dt.year > 2099U) dt.year  = 2025U;
+    if (dt.month < 1U  || dt.month > 12U)  dt.month  = 1U;
+    if (dt.day   < 1U  || dt.day   > 31U)  dt.day    = 1U;
+    if (dt.hour  > 23U)                     dt.hour   = 0U;
+    if (dt.minute > 59U)                    dt.minute = 0U;
+    if (dt.second > 59U)                    dt.second = 0U;
+    dt.weekday = 1U;  /* will be ignored by RTC; just a sane value */
+
+    settings_set_time_draw(&dt, field);
+
+    while (1)
+    {
+        ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+        if (ret != pdTRUE) continue;
+        if (q_item.q_evt_type != Q_EVENT_KEYPAD) continue;
+
+        ret = xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+        if (ret != pdTRUE) continue;
+
+        if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
+        {
+            xQueueReset(main_q_hdl);
+            return;  /* cancel */
+        }
+
+        /* Left/Right — move field */
+        if (this_button_status.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
+            field = (field == 0U) ? 5U : (uint8_t)(field - 1U);
+        if (this_button_status.event[BUTTON_RIGHT_KP_ID] == BUTTON_EVENT_CLICK)
+            field = (field + 1U) % 6U;
+
+        /* Up — increment */
+        if (this_button_status.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK)
+        {
+            switch (field)
+            {
+                case 0: dt.year   = (dt.year   >= 2099U) ? 2020U : (uint16_t)(dt.year + 1U);  break;
+                case 1: dt.month  = (dt.month  >= 12U)   ? 1U    : (uint8_t)(dt.month + 1U);  break;
+                case 2: dt.day    = (dt.day    >= settings_dim(dt.year, dt.month)) ? 1U : (uint8_t)(dt.day + 1U); break;
+                case 3: dt.hour   = (dt.hour   >= 23U)   ? 0U    : (uint8_t)(dt.hour + 1U);   break;
+                case 4: dt.minute = (dt.minute >= 59U)   ? 0U    : (uint8_t)(dt.minute + 1U); break;
+                case 5: dt.second = (dt.second >= 59U)   ? 0U    : (uint8_t)(dt.second + 1U); break;
+                default: break;
+            }
+        }
+
+        /* Down — decrement */
+        if (this_button_status.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK)
+        {
+            switch (field)
+            {
+                case 0: dt.year   = (dt.year   <= 2020U) ? 2099U : (uint16_t)(dt.year - 1U);  break;
+                case 1: dt.month  = (dt.month  <= 1U)    ? 12U   : (uint8_t)(dt.month - 1U);  break;
+                case 2: dt.day    = (dt.day    <= 1U)    ? settings_dim(dt.year, dt.month) : (uint8_t)(dt.day - 1U); break;
+                case 3: dt.hour   = (dt.hour   == 0U)    ? 23U   : (uint8_t)(dt.hour - 1U);   break;
+                case 4: dt.minute = (dt.minute == 0U)    ? 59U   : (uint8_t)(dt.minute - 1U); break;
+                case 5: dt.second = (dt.second == 0U)    ? 59U   : (uint8_t)(dt.second - 1U); break;
+                default: break;
+            }
+        }
+
+        /* Clamp day after month/year change */
+        {
+            uint8_t max_day = settings_dim(dt.year, dt.month);
+            if (dt.day > max_day) dt.day = max_day;
+        }
+
+        /* OK — commit and save */
+        if (this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
+        {
+            m1_set_datetime(&dt);
+            m1_buzzer_notification();
+            xQueueReset(main_q_hdl);
+            return;
+        }
+
+        settings_set_time_draw(&dt, field);
+    }
+}
+
+
+/*============================================================================*/
+/**
+  * @brief  System settings — two-item menu: ESP32 auto-init + Set Time
+  */
+/*============================================================================*/
+
+#define SYS_MENU_ITEMS   2
+#define SYS_ITEM_ESP32   0
+#define SYS_ITEM_TIME    1
+
+static void settings_system_draw(uint8_t sel)
+{
+    const char *label0 = "ESP32 at boot";
+    const char *val0   = m1_esp32_auto_init ? "ON" : "OFF";
+    const char *label1 = "Set Time";
+    const char *val1   = ">";
+
+    char badge[8];
+    snprintf(badge, sizeof(badge), "%u/%u", (unsigned)(sel + 1U), (unsigned)SYS_MENU_ITEMS);
+
+    m1_u8g2_firstpage();
+    u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+    m1_draw_header_bar(&m1_u8g2, "Settings", badge);
+    m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
+    u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
+
+    struct { const char *lbl; const char *val; } items[SYS_MENU_ITEMS] = {
+        { label0, val0 },
+        { label1, val1 }
+    };
+
+    uint8_t visible_start = (sel >= 2U) ? (uint8_t)(sel - 1U) : 0U;
+    for (uint8_t vi = 0; vi < 2U && (visible_start + vi) < SYS_MENU_ITEMS; vi++)
+    {
+        uint8_t item = visible_start + vi;
+        uint8_t y    = 30U + vi * 12U;
+        if (item == sel)
+        {
+            u8g2_DrawBox(&m1_u8g2, 6, y - 7, 114, 11);
+            u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
+            u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_B);
+            m1_draw_text(&m1_u8g2, 10, y, 70, items[item].lbl, TEXT_ALIGN_LEFT);
+            m1_draw_text(&m1_u8g2, 82, y, 34, items[item].val, TEXT_ALIGN_RIGHT);
+            u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+            u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
+        }
+        else
+        {
+            u8g2_DrawFrame(&m1_u8g2, 6, y - 7, 114, 11);
+            m1_draw_text(&m1_u8g2, 10, y, 70, items[item].lbl, TEXT_ALIGN_LEFT);
+            m1_draw_text(&m1_u8g2, 82, y, 34, items[item].val, TEXT_ALIGN_RIGHT);
+        }
+    }
+
+    m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Select", arrowright_8x8);
     m1_u8g2_nextpage();
 }
 
@@ -336,36 +529,62 @@ void settings_system(void)
     S_M1_Main_Q_t q_item;
     BaseType_t ret;
 
-    settings_system_draw();
+    uint8_t sel = 0;
+    uint8_t needs_redraw = 1;
 
     while (1)
     {
-        ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
-        if (ret != pdTRUE)
-            continue;
+        if (needs_redraw)
+        {
+            needs_redraw = 0;
+            settings_system_draw(sel);
+        }
 
-        if (q_item.q_evt_type != Q_EVENT_KEYPAD)
-            continue;
+        ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+        if (ret != pdTRUE) continue;
+        if (q_item.q_evt_type != Q_EVENT_KEYPAD) continue;
 
         ret = xQueueReceive(button_events_q_hdl, &this_button_status, 0);
-        if (ret != pdTRUE)
-            continue;
+        if (ret != pdTRUE) continue;
 
         if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
         {
+            settings_save_to_sd();
             xQueueReset(main_q_hdl);
             break;
         }
-        else if (this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK ||
-                 this_button_status.event[BUTTON_RIGHT_KP_ID] == BUTTON_EVENT_CLICK ||
-                 this_button_status.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
+
+        if (this_button_status.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK)
         {
-            m1_esp32_auto_init = m1_esp32_auto_init ? 0 : 1;
-            settings_save_to_sd();
-            settings_system_draw();
+            sel = (sel == 0U) ? (SYS_MENU_ITEMS - 1U) : (uint8_t)(sel - 1U);
+            needs_redraw = 1;
+        }
+        if (this_button_status.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK)
+        {
+            sel = (uint8_t)((sel + 1U) % SYS_MENU_ITEMS);
+            needs_redraw = 1;
+        }
+
+        if (this_button_status.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK ||
+            this_button_status.event[BUTTON_RIGHT_KP_ID] == BUTTON_EVENT_CLICK ||
+            this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
+        {
+            if (sel == SYS_ITEM_ESP32)
+            {
+                m1_esp32_auto_init = m1_esp32_auto_init ? 0 : 1;
+                settings_save_to_sd();
+                needs_redraw = 1;
+            }
+            else if (sel == SYS_ITEM_TIME)
+            {
+                settings_set_time();
+                needs_redraw = 1;
+            }
         }
     }
 }
+
+
 
 
 

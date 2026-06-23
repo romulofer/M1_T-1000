@@ -15,6 +15,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 #include "m1_builtin_apps.h"
 #include "m1_games.h"
 #include "m1_storage.h"
@@ -51,6 +52,11 @@ static const char *file_tools_labels[FILE_TOOLS_ITEM_COUNT] = {
 
 static void file_tools_draw(uint8_t sel);
 static void file_tools_status_text(char *status_text, size_t status_len, char *capacity_text, size_t capacity_len);
+static void file_tools_show_info(void);
+static const char *file_tools_status_label(S_M1_SDCard_Access_Status status);
+static const char *file_tools_fs_label(S_M1_SDCard_FAT_Sys fs_type);
+static void file_tools_format_capacity(uint32_t kb, char *out, size_t out_len);
+static uint8_t file_tools_free_percent(const S_M1_SDCard_Info *info);
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
 
@@ -108,6 +114,7 @@ static void file_tools_status_text(char *status_text, size_t status_len, char *c
     S_M1_SDCard_Info *info;
     unsigned long free_gb;
     unsigned long free_mb;
+    uint8_t free_pct;
 
     snprintf(capacity_text, capacity_len, " ");
 
@@ -120,14 +127,15 @@ static void file_tools_status_text(char *status_text, size_t status_len, char *c
         {
             free_gb = (unsigned long)(info->free_cap_kb / 1024UL / 1024UL);
             free_mb = (unsigned long)(info->free_cap_kb / 1024UL);
+            free_pct = file_tools_free_percent(info);
 
             if (free_gb > 0UL)
             {
-                snprintf(capacity_text, capacity_len, "%luG free", free_gb);
+                snprintf(capacity_text, capacity_len, "%luG free %u%%", free_gb, (unsigned)free_pct);
             }
             else
             {
-                snprintf(capacity_text, capacity_len, "%luM free", free_mb);
+                snprintf(capacity_text, capacity_len, "%luM free %u%%", free_mb, (unsigned)free_pct);
             }
         }
         else
@@ -155,6 +163,166 @@ static void file_tools_status_text(char *status_text, size_t status_len, char *c
         snprintf(status_text, status_len, "Card access error");
         snprintf(capacity_text, capacity_len, "Error");
     }
+}
+
+
+static void file_tools_show_info(void)
+{
+    S_M1_SDCard_Access_Status sd_status;
+    S_M1_SDCard_Info *info = NULL;
+    game_button_t btn;
+    char line1[28];
+    char line2[28];
+    char line3[28];
+    char line4[28];
+    char total_text[12];
+    char free_text[12];
+    char label_text[16];
+    char badge[12];
+    uint8_t free_pct;
+    uint8_t label_idx;
+
+    for (;;)
+    {
+        sd_status = m1_sdcard_get_status();
+        info = (sd_status == SD_access_OK) ? m1_sdcard_get_info() : NULL;
+
+        if (info != NULL && sd_status == SD_access_OK)
+        {
+            file_tools_format_capacity(info->total_cap_kb, total_text, sizeof(total_text));
+            file_tools_format_capacity(info->free_cap_kb, free_text, sizeof(free_text));
+            free_pct = file_tools_free_percent(info);
+            snprintf(badge, sizeof(badge), "%s", file_tools_fs_label(info->fs_type));
+            snprintf(line1, sizeof(line1), "Total: %s", total_text);
+            snprintf(line2, sizeof(line2), "Free:  %s %u%%", free_text, (unsigned)free_pct);
+            snprintf(line3, sizeof(line3), "Cluster:%u Sec:%u",
+                     (unsigned)info->cluster_size,
+                     (unsigned)info->sector_size);
+            label_idx = 0U;
+            if (info->vol_label[0])
+            {
+                while (label_idx < (sizeof(label_text) - 1U)
+                       && info->vol_label[label_idx] != '\0')
+                {
+                    label_text[label_idx] = info->vol_label[label_idx];
+                    label_idx++;
+                }
+                label_text[label_idx] = '\0';
+            }
+            else
+            {
+                strcpy(label_text, "none");
+            }
+            snprintf(line4, sizeof(line4), "Label:%s", label_text);
+        }
+        else
+        {
+            snprintf(badge, sizeof(badge), "Info");
+            snprintf(line1, sizeof(line1), "Status: %s", file_tools_status_label(sd_status));
+            snprintf(line2, sizeof(line2), "Total: N/A");
+            snprintf(line3, sizeof(line3), "Free:  N/A");
+            snprintf(line4, sizeof(line4), "Mount SD to refresh");
+        }
+
+        m1_u8g2_firstpage();
+        m1_draw_header_bar(&m1_u8g2, "Card Info", badge);
+        m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 36);
+        u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+        m1_draw_text(&m1_u8g2, 8, 22, 114, line1, TEXT_ALIGN_LEFT);
+        m1_draw_text(&m1_u8g2, 8, 30, 114, line2, TEXT_ALIGN_LEFT);
+        m1_draw_text(&m1_u8g2, 8, 38, 114, line3, TEXT_ALIGN_LEFT);
+        m1_draw_text(&m1_u8g2, 8, 46, 114, line4, TEXT_ALIGN_LEFT);
+        m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Refresh", arrowright_8x8);
+        m1_u8g2_nextpage();
+
+        btn = game_poll_button(FILE_TOOLS_POLL_MS);
+        if (btn == GAME_BTN_BACK || btn == GAME_BTN_LEFT)
+        {
+            return;
+        }
+        if (btn == GAME_BTN_OK || btn == GAME_BTN_RIGHT)
+        {
+            continue;
+        }
+    }
+}
+
+
+static const char *file_tools_status_label(S_M1_SDCard_Access_Status status)
+{
+    switch (status)
+    {
+        case SD_access_OK:
+            return "Mounted";
+        case SD_access_NotReady:
+            return "No card";
+        case SD_access_UnMounted:
+            return "Unmounted";
+        case SD_access_NoFS:
+            return "No FS";
+        case SD_access_NotOK:
+            return "Error";
+        default:
+            return "Unknown";
+    }
+}
+
+
+static const char *file_tools_fs_label(S_M1_SDCard_FAT_Sys fs_type)
+{
+    switch (fs_type)
+    {
+        case FATSYS_12:
+            return "FAT12";
+        case FATSYS_16:
+            return "FAT16";
+        case FATSYS_32:
+            return "FAT32";
+        case FATSYS_EXT:
+            return "exFAT";
+        case FATSYS_ANY:
+        default:
+            return "FAT";
+    }
+}
+
+
+static void file_tools_format_capacity(uint32_t kb, char *out, size_t out_len)
+{
+    uint32_t gb_x10;
+    uint32_t mb;
+
+    if (out == NULL || out_len == 0U)
+    {
+        return;
+    }
+
+    if (kb >= (1024UL * 1024UL))
+    {
+        gb_x10 = (uint32_t)(((uint64_t)kb * 10ULL) / (1024ULL * 1024ULL));
+        snprintf(out, out_len, "%lu.%luG",
+                 (unsigned long)(gb_x10 / 10UL),
+                 (unsigned long)(gb_x10 % 10UL));
+    }
+    else
+    {
+        mb = kb / 1024UL;
+        snprintf(out, out_len, "%luM", (unsigned long)mb);
+    }
+}
+
+
+static uint8_t file_tools_free_percent(const S_M1_SDCard_Info *info)
+{
+    uint32_t pct;
+
+    if (info == NULL || info->total_cap_kb == 0U)
+    {
+        return 0U;
+    }
+
+    pct = (uint32_t)(((uint64_t)info->free_cap_kb * 100ULL) / info->total_cap_kb);
+    return (pct > 100U) ? 100U : (uint8_t)pct;
 }
 
 
@@ -188,7 +356,7 @@ void app_file_tools_run(void)
                     storage_explore();
                     break;
                 case FILE_TOOLS_INFO:
-                    storage_about();
+                    file_tools_show_info();
                     break;
                 case FILE_TOOLS_MOUNT:
                     storage_mount();

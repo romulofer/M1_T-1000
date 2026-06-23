@@ -2,6 +2,147 @@
 
 All notable changes to the M1 T-1000 firmware will be documented in this file.
 
+## [0.2.0] - 2026-06-22
+
+### Added
+- **NFC → Detect Reader: on-device MIFARE Classic key recovery (mfkey32v2)** —
+  after capturing reader authentication nonces, the M1 now recovers the sector
+  key **on the device itself**, no PC tool required. It pairs two captured
+  auth attempts for the same sector/key type and runs a memory-bounded
+  Crypto-1 (Crapto-1) attack, showing a `Cracking N/16` progress screen with
+  BACK to cancel. The recovered key is displayed and saved to
+  `NFC/keys_<UID>.txt`, and also exported as a Proxmark-ready dictionary
+  `NFC/keys_<UID>.dic` (bare 12-hex key per line) for the M1+Proxmark workflow
+  (`hf mf fchk -f …`). The raw `NFC/mfkey_nonces.txt` dump is still written as
+  a fallback for desktop tools. Recovery takes roughly 2–3 minutes on-device
+  and the recovered key is cryptographically self-verified before it is shown.
+
+- **RFID → Diagnostics screen** — on-screen self-diagnostics (ported from
+  da-pingwing's `m1_diag`): shows the last reset cause (BOR/IWDG/SFT/POR) and
+  the T5577 write phase reached, stored in `.noinit` RAM so it survives a
+  brownout/watchdog/fault reset. Lets a silent reset during an RFID write be
+  diagnosed on the device, no serial adapter needed.
+
+### Fixed
+- **LF RFID → T5577 write produced a wrong (but valid) clone.** The T5577 bit
+  timing was out of spec: a "1" bit's gap-to-gap was 74 field clocks vs the
+  64 Tc datasheet maximum, so the chip latched it wrong and the cloned EM4100
+  read back as a consistent incorrect value. Retuned to in-spec timing (24/56
+  Tc) and switched the field gap to actively drive the coil pin low (no DC
+  short / brownout). Fix courtesy of **da-pingwing** — see Credits.
+- **RTC persistence** — the RTC calendar is no longer reset during firmware
+  flashes, resets, or standby/power-cycle paths while the backup domain remains
+  powered. Boot now keeps an already-valid calendar and records RTC
+  initialization in a high backup register away from firmware update state.
+- **LF RFID → Read stuck on "Reading" / no detection** — `lfrfid_read_hw_deinit()`
+  could touch TIM3/TIM5 registers while their RCC clocks were gated, raising a
+  bus fault → HardFault (which the fault handler spins on, freezing the read
+  screen). Now enables those timer clocks defensively before access. Fix
+  courtesy of **da-pingwing** — see Credits.
+- **On-device MIFARE Crypto-1 cipher corrected.** The software Crypto-1 in
+  `mfc_crypto1.c` used non-standard filter tables and PRNG, so authenticated
+  reads never worked. Replaced the core (filter/LFSR/init/PRNG) with the
+  canonical Crapto-1, host-validated by a round-trip against the mfkey32
+  recovery. (Authenticated read/write still needs the encrypted-parity framing,
+  tracked separately.)
+- **Idle responsiveness on battery** — tickless idle suspended the HAL tick
+  (TIM6) without correcting it on wake, so `HAL_GetTick()` froze during sleep
+  and UI/timeout pacing crawled when the device idled unplugged. The HAL tick is
+  now left running through idle sleep, keeping it accurate.
+- **ESP32-C6 SPI link re-init leak** — re-initializing the SPI AT layer (after a
+  C6 firmware update or a forced re-init) leaked a duplicate SPI control task
+  plus its queues/buffers each time; the RTOS objects/task are now created once.
+
+### Changed
+- Bumped the T-1000 firmware version to `0.2.0`.
+- **Flash savings (~59 KB)** — switched the FatFs OEM code page from 932
+  (Japanese Shift-JIS) to 437 (US), dropping two large Unicode conversion
+  tables. ASCII/Latin long filenames are unaffected.
+- Updated the built-in M1/T-1000 logo bitmaps across the splash/menu sizes.
+
+### Credits
+- **da-pingwing** (github.com/da-pingwing/M1_T-1000_RFID, "Monstatek M1 RFID
+  Patch", GPL-3.0) — diagnosis and fix for the T5577 write timing, and the
+  `m1_diag` reset-cause / write-phase diagnostics.
+- **noproto/FlipperMfkey** (GPLv3) — the memory-bounded Crapto-1 recovery the
+  on-device mfkey32 solver is ported from.
+
+### Notes
+- The mfkey32 solver is a self-contained port of the memory-bounded Crapto-1
+  recovery (noproto/FlipperMfkey, GPLv3), running in a fixed ~110 KB working
+  area with no heap use. It is independent of the existing software Crypto-1
+  cipher used for card auth/read.
+
+## [0.1.5] - 2026-06-11
+
+### Added
+- **System -> ESP32 update -> Verify Image** — validates a selected ESP32-C6
+  firmware image before flashing by checking the `.bin` type, same-folder
+  `.bin.md5` companion file, image size/alignment, and computed MD5.
+
+### Changed
+- ESP32-C6 firmware flashing now requires the expected `.bin` + `.bin.md5` pair
+  on SD card. The `.md5` file may be raw 32-character hex or standard md5sum
+  format, and must match the selected image before flashing proceeds. Legacy
+  `name.md5` companions are still accepted as a fallback.
+- ESP32-C6 firmware image filenames and `.bin`/`.md5` extension casing are now
+  accepted case-insensitively.
+- `WiFi 2.4G -> Stats` now falls back to standard ESP AT mode/IP/MAC queries
+  when the detailed custom ESP32-C6 stats command is unavailable, and displays
+  idle zero-value link fields as unavailable.
+- The ESP32 Link diagnostics app now uses the same WiFi stats fallback and
+  zero-value normalization as the main WiFi stats screen.
+- The File Tools app now has a self-contained Card Info panel with filesystem,
+  total/free capacity, cluster/sector size, volume label, and refresh support.
+- The Hex Viewer app now shows page/total position, handles empty files more
+  clearly, and clamps page/row navigation safely at EOF.
+- The System Dashboard app now includes a heap/watchdog health page and more
+  readable SD free-space formatting.
+- The Clock app now labels comparison pages as local-time offsets, supports
+  half-hour offsets, and carries weekday/date rollover into offset views.
+- The Dab Timer app now tracks completed sessions while keeping the adjustable
+  countdown, pause, and alert flow.
+- The DVD Logo app now has a reset control alongside speed/trail controls and
+  bounce/corner stats.
+- The Stock Backlight app now saves changed LP5814 brightness settings when
+  exiting the app.
+- The RGB Backlight app now shows a compact live on/brightness/reactive state
+  above the control rows.
+- The ESP32 Link diagnostics app now records how old the last result is on the
+  status page.
+- The File Tools app now shows SD free-space percentage in the menu and Card
+  Info panel.
+- The Hex Viewer ASCII preview now treats only printable 7-bit ASCII as text,
+  keeping binary/high-bit bytes displayed safely as dots.
+- FatFs OEM code page switched from 932 (Japanese Shift-JIS) to 437 (US),
+  dropping the two ~30 KB Unicode conversion tables and freeing ~59 KB of
+  flash (bank usage down from ~79% to ~71.5%). Long filenames are unaffected
+  for ASCII/Latin names; only 8.3 short-name conversion of Japanese-named SD
+  files is lost.
+- Bumped the T-1000 firmware version to `0.1.5`.
+
+### Fixed
+- **Idle power draw** — the CPU now actually sleeps when idle. Tickless idle
+  was enabled (`configUSE_TICKLESS_IDLE == 2`) but the live
+  `vPortSuppressTicksAndSleep()` was an empty stub (the real one in
+  `m1_low_power.c` was compiled out by `M1_MYTICKLESS_USE_RTC`), so the core
+  busy-spun at full speed whenever the system was idle. Now true tickless idle
+  (`configUSE_TICKLESS_IDLE == 1`) uses the FreeRTOS CM33 port implementation:
+  the RTOS tick is suppressed for the whole expected idle period (up to ~223 ms
+  per `WFI`) and the TIM6 HAL timebase is paused around the sleep so it cannot
+  wake the core every 1 ms. ISR latency is unaffected.
+- **ESP32 link re-init leak** — re-initializing the SPI AT layer after an
+  ESP32-C6 firmware update (or a forced re-init from the ESP32 Link app)
+  leaked a duplicate SPI control task plus its queues, semaphores, and
+  buffers every time. The RTOS objects and task are now created once and
+  re-init only flushes the stale session state and re-syncs the slave.
+- **ESP32-C6 idle power-off** — after leaving a WiFi/BT/802.15.4 feature the
+  C6 used to stay fully powered forever. It now powers off automatically after
+  60 s of no use; re-entry within the window is still instant, and after a
+  power-off the next feature entry transparently waits for the C6 to boot and
+  answer `AT` again (no more racing the boot). Power is never cut while an
+  ESP32 firmware update is in progress.
+
 ## [0.1.4] - 2026-06-10
 
 ### Added

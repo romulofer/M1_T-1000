@@ -176,6 +176,16 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM
 
+  /* No-init RAM: NOT zeroed by startup, so contents survive a software /
+   * watchdog reset. Used by the m1_diag block (reset-surviving breadcrumb). */
+  .noinit (NOLOAD) :
+  {
+    . = ALIGN(4);
+    *(.noinit)
+    *(.noinit*)
+    . = ALIGN(4);
+  } >RAM
+
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :
   {

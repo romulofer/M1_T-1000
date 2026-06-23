@@ -39,6 +39,8 @@
 /* USER CODE BEGIN PD */
 
 #define M1_LOGDB_TAG	"Main"
+#define M1_RTC_INIT_MAGIC       0x4D315254U
+#define M1_RTC_INIT_BKP_DR      RTC_BKP_DR31
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -82,6 +84,8 @@ static void MPU_Config(void);
 
 extern TIM_HandleTypeDef    Timerhdl_RfIdTIM3;
 extern void HAL_TIM_MspPostInit(TIM_HandleTypeDef* htim);
+static uint8_t M1_RTC_IsCalendarSane(void);
+static void M1_RTC_SetDefaultCalendar(void);
 
 #ifdef USE_FULL_ASSERT // Defined in stm32h5xx_hal_conf.h, line 196
 void assert_failed(uint8_t* file, uint32_t line);
@@ -373,6 +377,7 @@ static void MX_RTC_Init(void)
 {
 
   /* USER CODE BEGIN RTC_Init 0 */
+  uint32_t rtc_init_marker;
 
   /* USER CODE END RTC_Init 0 */
 
@@ -386,7 +391,10 @@ static void MX_RTC_Init(void)
   */
   hrtc.Instance = RTC;
   hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
-  hrtc.Init.AsynchPrediv = 127;
+  /* LSI on STM32H5 nominally 32000 Hz (not 32768 Hz like LSE).
+   * (AsynchPrediv+1) * (SynchPrediv+1) = 32000
+   * => 125 * 256 = 32000  (AsynchPrediv=124, SynchPrediv=255) */
+  hrtc.Init.AsynchPrediv = 124;
   hrtc.Init.SynchPrediv = 255;
   hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
   hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
@@ -397,6 +405,16 @@ static void MX_RTC_Init(void)
   if (HAL_RTC_Init(&hrtc) != HAL_OK)
   {
     Error_Handler();
+  }
+  rtc_init_marker = HAL_RTCEx_BKUPRead(&hrtc, M1_RTC_INIT_BKP_DR);
+  if (rtc_init_marker != M1_RTC_INIT_MAGIC)
+  {
+    if (M1_RTC_IsCalendarSane() == 0U)
+    {
+      M1_RTC_SetDefaultCalendar();
+    }
+    HAL_PWR_EnableBkUpAccess();
+    HAL_RTCEx_BKUPWrite(&hrtc, M1_RTC_INIT_BKP_DR, M1_RTC_INIT_MAGIC);
   }
   privilegeState.rtcPrivilegeFull = RTC_PRIVILEGE_FULL_NO;
   privilegeState.backupRegisterPrivZone = RTC_PRIVILEGE_BKUP_ZONE_NONE;
@@ -417,6 +435,67 @@ static void MX_RTC_Init(void)
 
   /* USER CODE END RTC_Init 2 */
 
+}
+
+static uint8_t M1_RTC_IsCalendarSane(void)
+{
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  if (HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    return 0U;
+  }
+  if (HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    return 0U;
+  }
+
+  if (sDate.Year < 20U || sDate.Year > 99U)
+  {
+    return 0U;
+  }
+  if (sDate.Month < 1U || sDate.Month > 12U)
+  {
+    return 0U;
+  }
+  if (sDate.Date < 1U || sDate.Date > 31U)
+  {
+    return 0U;
+  }
+  if (sTime.Hours > 23U || sTime.Minutes > 59U || sTime.Seconds > 59U)
+  {
+    return 0U;
+  }
+
+  return 1U;
+}
+
+static void M1_RTC_SetDefaultCalendar(void)
+{
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  sTime.Hours = 0U;
+  sTime.Minutes = 0U;
+  sTime.Seconds = 0U;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+
+  sDate.WeekDay = RTC_WEEKDAY_THURSDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 1U;
+  sDate.Year = 26U;
+
+  HAL_PWR_EnableBkUpAccess();
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
 /**

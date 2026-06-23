@@ -30,6 +30,7 @@
 #ifdef M1_APP_WIFI_CONNECT_ENABLE
 #include "m1_wifi_cred.h"
 #include "m1_virtual_kb.h"
+#include "m1_settings.h"
 #endif
 
 /*************************** D E F I N E S ************************************/
@@ -92,12 +93,16 @@ static bool wifi_scan_ap_connect_selected(const wifi_scanlist_t *ap);
 static void wifi_scan_ap_save_selected(const wifi_scanlist_t *ap);
 static void wifi_scan_ap_show_details(const wifi_scanlist_t *ap);
 static uint8_t wifi_scan_ap_options(const wifi_scanlist_t *ap);
+static bool wifi_fill_basic_stats(char body_lines[][24]);
+static void wifi_fill_stats_lines(char body_lines[][24], const ctrl_cmd_t *stats_req, bool detailed);
+static const char *wifi_mode_status_label(const char *status);
+static bool wifi_value_is_zero_addr(const char *value);
 
 #ifdef M1_APP_WIFI_OFFENSIVE_ENABLE
 static void wifi_attack_add_target(const wifi_scanlist_t *ap);
 static bool wifi_attack_target_actions(uint8_t idx);
 #endif
-static void wifi_draw_stats_page(char body_lines[][24], uint8_t scroll);
+static void wifi_draw_stats_page(char body_lines[][24], uint8_t scroll, bool detailed);
 #endif
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
@@ -1668,8 +1673,8 @@ void wifi_show_mode(void)
 	m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
 	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
 	m1_draw_text(&m1_u8g2, 8, 24, 114, line1, TEXT_ALIGN_LEFT);
-	m1_draw_text(&m1_u8g2, 8, 34, 114, "New ESP32 command", TEXT_ALIGN_LEFT);
-	m1_draw_text(&m1_u8g2, 8, 44, 114, "path is responding", TEXT_ALIGN_LEFT);
+	m1_draw_text(&m1_u8g2, 8, 34, 114, "Standard AT query", TEXT_ALIGN_LEFT);
+	m1_draw_text(&m1_u8g2, 8, 44, 114, M1_WIFI_BAND_NOTE, TEXT_ALIGN_LEFT);
 	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Refresh", arrowright_8x8);
 	m1_u8g2_nextpage();
 
@@ -1712,6 +1717,7 @@ void wifi_show_stats(void)
 	uint8_t scroll = 0U;
 	bool needs_query = true;
 	bool needs_redraw = true;
+	bool detailed = false;
 
 	u8g2_SetFont(&m1_u8g2, M1_DISP_MAIN_MENU_FONT_N);
 
@@ -1732,28 +1738,23 @@ void wifi_show_stats(void)
 			}
 
 			wifi_display_busy("Getting stats...");
-			if ( wifi_get_stats(&stats_req) != SUCCESS )
+			if ( wifi_get_stats(&stats_req) == SUCCESS )
 			{
-				wifi_display_msg("Stats query", "failed");
-				vTaskDelay(pdMS_TO_TICKS(1500));
-				m1_esp32_deinit();
-				xQueueReset(main_q_hdl);
-				return;
+				detailed = true;
+				wifi_fill_stats_lines(body_lines, &stats_req, true);
 			}
-
-			snprintf(body_lines[0], sizeof(body_lines[0]), "Link: %s",
-			         (stats_req.u.wifi_ap_config.band_mode != 0) ? "Connected" : "Idle");
-			snprintf(body_lines[1], sizeof(body_lines[1]), "Mode: %s",
-			         stats_req.u.wifi_ap_config.status[0] ? stats_req.u.wifi_ap_config.status : "Unknown");
-			snprintf(body_lines[2], sizeof(body_lines[2]), "RSSI: %d dBm",
-			         stats_req.u.wifi_ap_config.rssi);
-			snprintf(body_lines[3], sizeof(body_lines[3]), "Channel: %d",
-			         stats_req.u.wifi_ap_config.channel);
-			snprintf(body_lines[4], sizeof(body_lines[4]), "IP: %s",
-			         stats_req.u.wifi_ap_config.out_mac[0] ? stats_req.u.wifi_ap_config.out_mac : "0.0.0.0");
-			snprintf(body_lines[5], sizeof(body_lines[5]), "BSSID:%s",
-			         stats_req.u.wifi_ap_config.bssid[0] ?
-			             (const char *)stats_req.u.wifi_ap_config.bssid : "none");
+			else
+			{
+				detailed = false;
+				if ( !wifi_fill_basic_stats(body_lines) )
+				{
+					wifi_display_msg("Stats query", "failed");
+					vTaskDelay(pdMS_TO_TICKS(1500));
+					m1_esp32_deinit();
+					xQueueReset(main_q_hdl);
+					return;
+				}
+			}
 
 			if (scroll > 2U)
 			{
@@ -1765,7 +1766,7 @@ void wifi_show_stats(void)
 
 		if (needs_redraw)
 		{
-			wifi_draw_stats_page(body_lines, scroll);
+			wifi_draw_stats_page(body_lines, scroll, detailed);
 			needs_redraw = false;
 		}
 
@@ -1807,10 +1808,154 @@ void wifi_show_stats(void)
 
 /*============================================================================*/
 /**
+  * @brief Build a useful stats page from standard ESP AT commands
+  */
+/*============================================================================*/
+static bool wifi_fill_basic_stats(char body_lines[][24])
+{
+	ctrl_cmd_t mode_req = CTRL_CMD_DEFAULT_REQ();
+	ctrl_cmd_t ip_req = CTRL_CMD_DEFAULT_REQ();
+	ctrl_cmd_t basic_req = CTRL_CMD_DEFAULT_REQ();
+	bool mode_ok;
+	bool ip_ok;
+	bool has_ip;
+
+	mode_req.cmd_timeout_sec = 8;
+	ip_req.cmd_timeout_sec = 8;
+
+	mode_ok = (wifi_get_mode(&mode_req) == SUCCESS);
+	ip_ok = (wifi_get_ip(&ip_req) == SUCCESS);
+
+	if ( !mode_ok && !ip_ok )
+	{
+		return false;
+	}
+
+	has_ip = ip_ok
+	         && ip_req.u.wifi_ap_config.status[0]
+	         && !wifi_value_is_zero_addr(ip_req.u.wifi_ap_config.status);
+
+	basic_req.u.wifi_ap_config.band_mode = has_ip ? 1 : 0;
+	if (mode_ok)
+	{
+		strncpy(basic_req.u.wifi_ap_config.status,
+		        mode_req.u.wifi_ap_config.status,
+		        STATUS_LENGTH - 1U);
+		basic_req.u.wifi_ap_config.status[STATUS_LENGTH - 1U] = '\0';
+	}
+	if (has_ip)
+	{
+		strncpy(basic_req.u.wifi_ap_config.out_mac,
+		        ip_req.u.wifi_ap_config.status,
+		        MAX_MAC_STR_SIZE - 1U);
+		basic_req.u.wifi_ap_config.out_mac[MAX_MAC_STR_SIZE - 1U] = '\0';
+		strncpy((char *)basic_req.u.wifi_ap_config.bssid,
+		        ip_req.u.wifi_ap_config.out_mac,
+		        BSSID_STR_SIZE - 1U);
+		basic_req.u.wifi_ap_config.bssid[BSSID_STR_SIZE - 1U] = '\0';
+	}
+
+	if (s_cached_rssi != 0)
+	{
+		basic_req.u.wifi_ap_config.rssi = s_cached_rssi;
+	}
+
+	wifi_fill_stats_lines(body_lines, &basic_req, false);
+	return true;
+} // static bool wifi_fill_basic_stats(char body_lines[][24])
+
+
+/*============================================================================*/
+/**
+  * @brief Normalize WiFi stats so idle/zero fields display as unavailable
+  */
+/*============================================================================*/
+static void wifi_fill_stats_lines(char body_lines[][24], const ctrl_cmd_t *stats_req, bool detailed)
+{
+	const wifi_ap_config_t *cfg = &stats_req->u.wifi_ap_config;
+	bool connected = (cfg->band_mode != 0)
+	                 && cfg->out_mac[0]
+	                 && !wifi_value_is_zero_addr(cfg->out_mac);
+
+	snprintf(body_lines[0], 24, "Link: %s", connected ? "Connected" : "Idle");
+	snprintf(body_lines[1], 24, "Mode: %s", wifi_mode_status_label(cfg->status));
+
+	if (connected && cfg->rssi != 0)
+		snprintf(body_lines[2], 24, "RSSI: %d dBm", cfg->rssi);
+	else
+		snprintf(body_lines[2], 24, "RSSI: N/A");
+
+	if (connected && cfg->channel > 0)
+		snprintf(body_lines[3], 24, "Channel: %d", cfg->channel);
+	else
+		snprintf(body_lines[3], 24, "Channel: N/A");
+
+	snprintf(body_lines[4], 24, "IP: %s",
+	         connected ? cfg->out_mac : "N/A");
+	snprintf(body_lines[5], 24, "%s:%s",
+	         detailed ? "BSSID" : "MAC",
+	         (connected && cfg->bssid[0] && !wifi_value_is_zero_addr((const char *)cfg->bssid)) ?
+	             (const char *)cfg->bssid : "none");
+} // static void wifi_fill_stats_lines(char body_lines[][24], const ctrl_cmd_t *stats_req, bool detailed)
+
+
+/*============================================================================*/
+/**
+  * @brief Expand compact ESP AT mode strings for display
+  */
+/*============================================================================*/
+static const char *wifi_mode_status_label(const char *status)
+{
+	if (status == NULL || status[0] == '\0')
+		return "Unknown";
+	if (strcmp(status, "STA") == 0)
+		return "Station";
+	if (strcmp(status, "AP") == 0)
+		return "SoftAP";
+	if (strcmp(status, "APSTA") == 0)
+		return "AP+STA";
+	if (strcmp(status, "NULL") == 0)
+		return "Off";
+
+	return status;
+} // static const char *wifi_mode_status_label(const char *status)
+
+
+/*============================================================================*/
+/**
+  * @brief Treat zero IP/MAC/BSSID strings as empty values
+  */
+/*============================================================================*/
+static bool wifi_value_is_zero_addr(const char *value)
+{
+	bool saw_zero = false;
+
+	if (value == NULL || value[0] == '\0')
+		return true;
+
+	for (uint8_t i = 0; value[i] != '\0' && i < 18U; i++)
+	{
+		if (value[i] == '0')
+		{
+			saw_zero = true;
+			continue;
+		}
+		if (value[i] == '.' || value[i] == ':')
+			continue;
+
+		return false;
+	}
+
+	return saw_zero;
+} // static bool wifi_value_is_zero_addr(const char *value)
+
+
+/*============================================================================*/
+/**
   * @brief Draw cached WiFi stats without re-querying the ESP32
   */
 /*============================================================================*/
-static void wifi_draw_stats_page(char body_lines[][24], uint8_t scroll)
+static void wifi_draw_stats_page(char body_lines[][24], uint8_t scroll, bool detailed)
 {
 	char badge[16];
 
@@ -1819,7 +1964,8 @@ static void wifi_draw_stats_page(char body_lines[][24], uint8_t scroll)
 		scroll = 2U;
 	}
 
-	snprintf(badge, sizeof(badge), "%u-%u/6",
+	snprintf(badge, sizeof(badge), "%c%u-%u/6",
+	         detailed ? 'D' : 'B',
 	         (unsigned)(scroll + 1U), (unsigned)(scroll + 4U));
 
 	m1_u8g2_firstpage();
@@ -2038,7 +2184,10 @@ void wifi_sync_rtc_tool(void)
 	wifi_display_busy("Syncing RTC...");
 
 	if ( wifi_sync_rtc() )
+	{
+		settings_save_to_sd();  /* persist auto-detected TZ offset */
 		wifi_display_msg("RTC synced", "via WiFi");
+	}
 	else
 		wifi_display_msg("RTC sync", "failed");
 

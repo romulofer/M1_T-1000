@@ -22,16 +22,16 @@
 
 /*************************** D E F I N E S ************************************/
 
-#define CLOCK_PAGE_COUNT  5U
 #define CLOCK_POLL_MS     200U
+#define CLOCK_ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 //************************** S T R U C T U R E S *******************************/
 
 typedef struct
 {
     const char *label;
-    int8_t offset_hours;
-} world_zone_t;
+    int16_t offset_minutes;
+} clock_offset_t;
 
 /***************************** V A R I A B L E S ******************************/
 
@@ -46,19 +46,23 @@ static const char *clock_weekdays[] = {
     "Sun"
 };
 
-static const world_zone_t clock_zones[] = {
-    { "UTC",    0 },
-    { "UTC+1",  1 },
-    { "UTC+5",  5 },
-    { "UTC+9",  9 }
+static const clock_offset_t clock_offsets[] = {
+    { "Local -8h",   -480 },
+    { "Local -5h",   -300 },
+    { "Local -3h",   -180 },
+    { "Local +1h",     60 },
+    { "Local +5:30",  330 },
+    { "Local +9h",    540 }
 };
+
+#define CLOCK_PAGE_COUNT  (1U + (uint8_t)CLOCK_ARRAY_SIZE(clock_offsets))
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
 
 static bool clock_is_leap_year(uint16_t year);
 static uint8_t clock_days_in_month(uint16_t year, uint8_t month);
 static void clock_adjust_days(m1_time_t *dt, int8_t delta_days);
-static void clock_apply_offset(const m1_time_t *src, int8_t offset_hours, m1_time_t *dst);
+static void clock_apply_offset(const m1_time_t *src, int16_t offset_minutes, m1_time_t *dst);
 static void clock_draw_page(uint8_t page);
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
@@ -152,9 +156,9 @@ static void clock_adjust_days(m1_time_t *dt, int8_t delta_days)
 }
 
 
-static void clock_apply_offset(const m1_time_t *src, int8_t offset_hours, m1_time_t *dst)
+static void clock_apply_offset(const m1_time_t *src, int16_t offset_minutes, m1_time_t *dst)
 {
-    int16_t hour;
+    int16_t minute_of_day;
 
     if (src == NULL || dst == NULL)
     {
@@ -162,21 +166,22 @@ static void clock_apply_offset(const m1_time_t *src, int8_t offset_hours, m1_tim
     }
 
     *dst = *src;
-    hour = (int16_t)src->hour + (int16_t)offset_hours;
+    minute_of_day = (int16_t)((src->hour * 60U) + src->minute) + offset_minutes;
 
-    while (hour < 0)
+    while (minute_of_day < 0)
     {
-        hour += 24;
+        minute_of_day += 1440;
         clock_adjust_days(dst, -1);
     }
 
-    while (hour >= 24)
+    while (minute_of_day >= 1440)
     {
-        hour -= 24;
+        minute_of_day -= 1440;
         clock_adjust_days(dst, 1);
     }
 
-    dst->hour = (uint8_t)hour;
+    dst->hour = (uint8_t)(minute_of_day / 60);
+    dst->minute = (uint8_t)(minute_of_day % 60);
 }
 
 
@@ -187,31 +192,30 @@ static void clock_draw_page(uint8_t page)
     char badge[8];
     char date_line[24];
     char time_line[12];
-    const world_zone_t *zone = NULL;
+    const clock_offset_t *offset = NULL;
     const char *weekday = clock_weekdays[1];
     const char *title = "Local clock";
 
     m1_get_localtime(&now);
-    if (now.weekday <= 7U)
-    {
-        weekday = clock_weekdays[now.weekday];
-    }
 
     snprintf(badge, sizeof(badge), "%u/%u", (unsigned)(page + 1U), (unsigned)CLOCK_PAGE_COUNT);
     if (page == 0U)
     {
         zone_time = now;
-        snprintf(time_line, sizeof(time_line), "%02u:%02u:%02u", zone_time.hour, zone_time.minute, zone_time.second);
-        snprintf(date_line, sizeof(date_line), "%s %02u/%02u/%04u", weekday, zone_time.month, zone_time.day, zone_time.year);
     }
     else
     {
-        zone = &clock_zones[page - 1U];
-        title = zone->label;
-        clock_apply_offset(&now, zone->offset_hours, &zone_time);
-        snprintf(time_line, sizeof(time_line), "%02u:%02u:%02u", zone_time.hour, zone_time.minute, zone_time.second);
-        snprintf(date_line, sizeof(date_line), "%02u/%02u/%04u", zone_time.month, zone_time.day, zone_time.year);
+        offset = &clock_offsets[page - 1U];
+        title = offset->label;
+        clock_apply_offset(&now, offset->offset_minutes, &zone_time);
     }
+
+    if (zone_time.weekday <= 7U)
+    {
+        weekday = clock_weekdays[zone_time.weekday];
+    }
+    snprintf(time_line, sizeof(time_line), "%02u:%02u:%02u", zone_time.hour, zone_time.minute, zone_time.second);
+    snprintf(date_line, sizeof(date_line), "%s %02u/%02u/%04u", weekday, zone_time.month, zone_time.day, zone_time.year);
 
     m1_u8g2_firstpage();
     m1_draw_header_bar(&m1_u8g2, "Clock", badge);

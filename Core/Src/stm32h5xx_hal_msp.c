@@ -222,11 +222,14 @@ void HAL_RTC_MspInit(RTC_HandleTypeDef* hrtc)
 
   /** Initializes the peripherals clock
   */
-    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RTC;
-    PeriphClkInitStruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
-    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+    if (READ_BIT(RCC->BDCR, RCC_BDCR_RTCSEL) == RCC_RTCCLKSOURCE_NO_CLK)
     {
-      Error_Handler();
+      PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RTC;
+      PeriphClkInitStruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
+      if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+      {
+        Error_Handler();
+      }
     }
 
     /* Peripheral clock enable */

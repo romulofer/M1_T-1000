@@ -14,6 +14,7 @@
 #include "app_freertos.h"
 #include "cmsis_os.h"
 #include "main.h"
+#include "m1_diag.h"
 #include "m1_lcd.h"
 #include "m1_lp5814.h"
 #include "m1_bq27421.h"
@@ -188,6 +189,8 @@ void m1_system_init_task(void *param)
 			huart_logdb.Init.StopBits = UART_STOPBITS_1;
 			huart_logdb.Init.Parity = UART_PARITY_NONE;
 			m1_logdb_init();
+
+			m1_diag_boot_report();   /* report/snapshot last reset cause + RFID write phase */
 
 			m1_wdt_init();
 			m1_tasks_init();

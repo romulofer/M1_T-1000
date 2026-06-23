@@ -22,6 +22,7 @@
 #include "m1_display.h"
 #include "m1_system.h"
 #include "m1_rgb_backlight.h"
+#include "m1_settings.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -127,6 +128,7 @@ void app_stock_backlight_run(void)
     uint8_t sel = 0U;
     uint8_t needs_redraw = 1U;
     uint8_t bright_idx = stock_brightness_index(s_brightness_values[m1_brightness_level]);
+    bool changed = false;
 
     for (;;)
     {
@@ -139,7 +141,13 @@ void app_stock_backlight_run(void)
         btn = game_poll_button(STOCK_POLL_MS);
 
         if (btn == GAME_BTN_BACK)
+        {
+            if (changed)
+            {
+                settings_save_to_sd();
+            }
             return;
+        }
 
         if (btn == GAME_BTN_UP)
         {
@@ -158,6 +166,7 @@ void app_stock_backlight_run(void)
                 bright_idx = (bright_idx == 0U) ? 4U : (bright_idx - 1U);
                 m1_brightness_level = bright_idx;
                 m1_backlight_on(s_brightness_values[bright_idx]);
+                changed = true;
             }
             else if (sel == STOCK_MENU_ONOFF)
             {
@@ -173,6 +182,7 @@ void app_stock_backlight_run(void)
                     m1_backlight_on(s_brightness_values[3]);
                     bright_idx = 3;
                 }
+                changed = true;
             }
             needs_redraw = 1U;
         }
@@ -183,6 +193,7 @@ void app_stock_backlight_run(void)
                 bright_idx = (bright_idx + 1U) % 5U;
                 m1_brightness_level = bright_idx;
                 m1_backlight_on(s_brightness_values[bright_idx]);
+                changed = true;
             }
             else if (sel == STOCK_MENU_ONOFF)
             {
@@ -198,6 +209,7 @@ void app_stock_backlight_run(void)
                     m1_backlight_on(s_brightness_values[3]);
                     bright_idx = 3;
                 }
+                changed = true;
             }
             needs_redraw = 1U;
         }

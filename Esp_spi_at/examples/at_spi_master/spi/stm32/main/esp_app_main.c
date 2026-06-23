@@ -63,6 +63,7 @@ static uint8_t current_send_seq = 0;
 static uint8_t current_recv_seq = 0;
 
 static bool esp32_main_init_done = false;
+static TaskHandle_t spi_trans_task_handle = NULL;
 
 /* uid to link between requests and responses
  * uids are incrementing values from 1 onwards. */
@@ -575,47 +576,66 @@ uint8_t spi_AT_send_recv(const char *at_cmd, char *out_buf, int out_buf_size, in
 static void init_master_hd(spi_device_handle_t* spi)
 {
 	spi_device_handle_t spi_dev;
+	static bool master_objs_created = false;
 
-	/* queue init */
-	ctrl_msg_Q = create_esp_queue();
-	if (!ctrl_msg_Q) {
-		M1_LOG_E(TAG, "Failed to create app ctrl msg Q\r\n");
-		return;
+	if (!master_objs_created)
+	{
+		/* queue init */
+		ctrl_msg_Q = create_esp_queue();
+		if (!ctrl_msg_Q) {
+			M1_LOG_E(TAG, "Failed to create app ctrl msg Q\r\n");
+			return;
+		}
+		// Create the message queue.
+		esp_spi_msg_queue = xQueueCreate(5, sizeof(spi_master_msg_t));
+		// Create the tx_buf.
+		spi_master_tx_ring_buf = xStreamBufferCreate(STREAM_BUFFER_SIZE, 1);
+		// Create the semaphore.
+		pxMutex = xSemaphoreCreateMutex();
+
+		/* semaphore init */
+		esp_ctrl_req_sem = xSemaphoreCreateBinary();
+		assert(esp_ctrl_req_sem);
+		esp_resp_read_sem = xSemaphoreCreateBinary();
+		assert(esp_resp_read_sem );
+		/*
+		Note that binary semaphores created using
+		 * the vSemaphoreCreateBinary() macro are created in a state such that the
+		 * first call to 'take' the semaphore would pass, whereas binary semaphores
+		 * created using xSemaphoreCreateBinary() are created in a state such that the
+		 * the semaphore must first be 'given' before it can be 'taken'
+		 *
+		*/
+		/* Get read semaphore for first time */
+		//xSemaphoreTake(esp_resp_read_sem, portMAX_DELAY);
+		/* Give req semaphore for first time */
+		xSemaphoreGive(esp_ctrl_req_sem);
+
+		spi_dev = pvPortMalloc(sizeof(struct spi_device_t));
+		assert(spi_dev!=NULL);
+		memset(spi_dev, 0, sizeof(struct spi_device_t));
+		spi_dev->id = ESP_SPI_ID;
+		spi_dev->cfg.flags = 0;
+		spi_dev->host = pvPortMalloc(sizeof(spi_host_t));
+		assert(spi_dev->host!=NULL);
+		memset(spi_dev->host, 0, sizeof(spi_host_t));
+		*spi = spi_dev;
+
+		master_objs_created = true;
 	}
-    // Create the message queue.
-    esp_spi_msg_queue = xQueueCreate(5, sizeof(spi_master_msg_t));
-    // Create the tx_buf.
-    spi_master_tx_ring_buf = xStreamBufferCreate(STREAM_BUFFER_SIZE, 1);
-    // Create the semaphore.
-    pxMutex = xSemaphoreCreateMutex();
-
-    /* semaphore init */
-	esp_ctrl_req_sem = xSemaphoreCreateBinary();
-	assert(esp_ctrl_req_sem);
-	esp_resp_read_sem = xSemaphoreCreateBinary();
-	assert(esp_resp_read_sem );
-	/*
-	Note that binary semaphores created using
-	 * the vSemaphoreCreateBinary() macro are created in a state such that the
-	 * first call to 'take' the semaphore would pass, whereas binary semaphores
-	 * created using xSemaphoreCreateBinary() are created in a state such that the
-	 * the semaphore must first be 'given' before it can be 'taken'
-	 *
-	*/
-	/* Get read semaphore for first time */
-	//xSemaphoreTake(esp_resp_read_sem, portMAX_DELAY);
-	/* Give req semaphore for first time */
-	xSemaphoreGive(esp_ctrl_req_sem);
-
-    spi_dev = pvPortMalloc(sizeof(struct spi_device_t));
-    assert(spi_dev!=NULL);
-    memset(spi_dev, 0, sizeof(struct spi_device_t));
-    spi_dev->id = ESP_SPI_ID;
-    spi_dev->cfg.flags = 0;
-    spi_dev->host = pvPortMalloc(sizeof(spi_host_t));
-    assert(spi_dev->host!=NULL);
-    memset(spi_dev->host, 0, sizeof(spi_host_t));
-    *spi = spi_dev;
+	else
+	{
+		/* Re-init after a slave reset (esp32_main_force_reinit): the RTOS
+		 * objects, SPI device and control task survive — recreating them here
+		 * used to leak the old ones on every re-init. Just flush session
+		 * state left over from before the reset so it cannot pair with the
+		 * fresh slave session. */
+		spi_AT_reset_response_channel();
+		xQueueReset(esp_spi_msg_queue);
+		xStreamBufferReset(spi_master_tx_ring_buf);
+		plan_send_len = 0;
+		xSemaphoreGive(esp_ctrl_req_sem);
+	}
 
     spi_mutex_lock();
 
@@ -751,8 +771,13 @@ void esp32_main_init(void)
 	reset_slave();
 
 	init_master_hd(&spi_dev_handle);
-    ret = xTaskCreate(spi_trans_control_task, "spi_trans_control_task", M1_TASK_STACK_SIZE_2048, NULL, TASK_PRIORITY_ESP32_TASKS, NULL);
-	assert(ret==pdPASS);
+	/* The control task never exits; create it only once or every
+	 * force-reinit + init cycle leaks a task and its buffers. */
+	if (spi_trans_task_handle == NULL)
+	{
+		ret = xTaskCreate(spi_trans_control_task, "spi_trans_control_task", M1_TASK_STACK_SIZE_2048, NULL, TASK_PRIORITY_ESP32_TASKS, &spi_trans_task_handle);
+		assert(ret==pdPASS);
+	}
 	free_heap = xPortGetFreeHeapSize(); // xPortGetMinimumEverFreeHeapSize()
 	assert(free_heap >= M1_LOW_FREE_HEAP_WARNING_SIZE);
 
@@ -772,6 +797,36 @@ void esp32_main_init(void)
 		M1_LOG_E(TAG, "esp32_main_init: C6 not responding to AT after reset\r\n");
 	}
 } // void app_main(void)
+
+
+/**
+  * @brief  Wait for the C6 to answer AT after a power-up that did not go
+  *         through esp32_main_init() (e.g. wake from the idle power-off in
+  *         m1_esp32_hal.c). The SPI control task and queues from the first
+  *         init are still alive; only the slave was power cycled, so its
+  *         boot handshake may have been missed and AT needs time to come up.
+  * @retval true if the C6 answered "OK", false if it never did
+  */
+bool esp32_at_wake_wait(void)
+{
+	if ( !esp32_main_init_done )
+		return false;
+
+	HAL_Delay(200); /* C6 boot time before its SPI slave driver is up */
+
+	/* If handshake is already HIGH the rising edge was missed while EXTI was
+	 * disabled — inject it so spi_trans_control_task processes the event. */
+	if (HAL_GPIO_ReadPin(ESP32_HANDSHAKE_GPIO_Port, ESP32_HANDSHAKE_Pin) == GPIO_PIN_SET) {
+		spi_master_msg_t spi_msg = { .slave_notify_flag = true };
+		xQueueSend(esp_spi_msg_queue, (void*)&spi_msg, 0);
+	}
+
+	if (!esp_wait_at_ready(25)) {
+		M1_LOG_E(TAG, "esp32_at_wake_wait: C6 not responding to AT after power-up\r\n");
+		return false;
+	}
+	return true;
+} // bool esp32_at_wake_wait(void)
 
 
 static void esp_free_mem( char **buf_ptr)

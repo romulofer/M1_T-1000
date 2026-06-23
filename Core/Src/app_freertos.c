@@ -61,12 +61,16 @@ const osThreadAttr_t dummytask_attributes = {
 /* USER CODE END FunctionPrototypes */
 
 /* USER CODE BEGIN VPORT_SUPPORT_TICKS_AND_SLEEP */
+#if ( configUSE_TICKLESS_IDLE == 2 )
 __weak void vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime )
 {
   // Generated when configUSE_TICKLESS_IDLE == 2.
   // Function called in tasks.c (in portTASK_FUNCTION).
   // TO BE COMPLETED or TO BE REPLACED by a user one, overriding that weak one.
 }
+#endif /* configUSE_TICKLESS_IDLE == 2 — with == 1 the port.c implementation
+        * is used; a second weak definition here would make the linker's
+        * choice order-dependent. */
 /* USER CODE END VPORT_SUPPORT_TICKS_AND_SLEEP */
 
 /**

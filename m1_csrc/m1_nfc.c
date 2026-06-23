@@ -27,7 +27,11 @@
 #include "res_string.h"
 #include "rfal_t2t.h"
 #include "rfal_nfcv.h"
+#include "rfal_nfca.h"
+#include "rfal_rf.h"
 #include "legacy/mfc_crypto1.h"
+#include "legacy/mfkey32.h"
+#include "m1_watchdog.h"
 
 /*************************** D E F I N E S ************************************/
 #define M1_LOGDB_TAG					"NFC"
@@ -1191,6 +1195,170 @@ void nfc_emulate_gui_init(void)
  * @brief Write UID to a magic/Gen1a T2T card
  */
 /*============================================================================*/
+/* ISO14443-A CRC (same algorithm as the Crypto-1 block reader). */
+static void nfc_crc14443a(const uint8_t *data, uint16_t len, uint8_t *crc_out)
+{
+	uint16_t crc = 0x6363;
+	for (uint16_t i = 0; i < len; i++) {
+		uint8_t bt = data[i];
+		bt ^= (uint8_t)(crc & 0xFF);
+		bt ^= (uint8_t)(bt << 4);
+		crc = (uint16_t)((crc >> 8) ^ ((uint16_t)bt << 8) ^ ((uint16_t)bt << 3) ^ ((uint16_t)bt >> 4));
+	}
+	crc_out[0] = (uint8_t)(crc & 0xFF);
+	crc_out[1] = (uint8_t)(crc >> 8);
+}
+
+/* Attempt a MIFARE Classic Gen1a "magic" block-0 write via the backdoor:
+ * HLTA -> 0x40 (7-bit) -> 0x43 -> WRITE block0 (0xA0,0x00) -> 16 data bytes.
+ * Each step expects a 4-bit ACK (0x0A). Returns RFAL_ERR_NONE on success.
+ * NOTE: RF framing (esp. the 7-bit 0x40) is bench-validated only. */
+static ReturnCode nfc_gen1a_write_block0(const uint8_t block0[16], char *dbg, int dn)
+{
+	ReturnCode err;
+	uint8_t  rx[8];
+	uint16_t rxLen = 0, rxBits = 0;
+	uint8_t  buf[20];
+	uint32_t raw = RFAL_TXRX_FLAGS_CRC_TX_MANUAL | RFAL_TXRX_FLAGS_CRC_RX_KEEP;
+
+	/* HLTA to force a clean HALT state (response not expected) */
+	buf[0] = 0x50; buf[1] = 0x00;
+	nfc_crc14443a(buf, 2, &buf[2]);
+	(void)rfalTransceiveBlockingTxRx(buf, 4, rx, sizeof(rx), &rxLen, raw, rfalConvMsTo1fc(20));
+
+	/* 0x40 as a 7-bit frame (no parity, no CRC) via the anticollision path */
+	uint8_t bytesToSend = 0, bitsToSend = 7;
+	buf[0] = 0x40;
+	err = rfalISO14443ATransceiveAnticollisionFrame(buf, &bytesToSend, &bitsToSend, &rxBits, rfalConvMsTo1fc(20));
+	if (err != RFAL_ERR_NONE || (buf[0] & 0x0F) != 0x0A) {
+		snprintf(dbg, dn, "G1 0x40 e%d a%02X b%u", (int)err, buf[0], (unsigned)rxBits);
+		return RFAL_ERR_PROTO;
+	}
+
+	/* 0x43 (8-bit, no CRC) */
+	buf[0] = 0x43;
+	err = rfalTransceiveBlockingTxRx(buf, 1, rx, sizeof(rx), &rxLen, raw, rfalConvMsTo1fc(20));
+	if (err != RFAL_ERR_NONE || rxLen == 0 || (rx[0] & 0x0F) != 0x0A) {
+		snprintf(dbg, dn, "G1 0x43 e%d a%02X", (int)err, (rxLen ? rx[0] : 0xFF));
+		return RFAL_ERR_PROTO;
+	}
+
+	/* WRITE command: 0xA0 block0 + CRC */
+	buf[0] = 0xA0; buf[1] = 0x00;
+	nfc_crc14443a(buf, 2, &buf[2]);
+	err = rfalTransceiveBlockingTxRx(buf, 4, rx, sizeof(rx), &rxLen, raw, rfalConvMsTo1fc(60));
+	if (err != RFAL_ERR_NONE || rxLen == 0 || (rx[0] & 0x0F) != 0x0A) {
+		snprintf(dbg, dn, "G1 wr e%d a%02X", (int)err, (rxLen ? rx[0] : 0xFF));
+		return RFAL_ERR_PROTO;
+	}
+
+	/* 16 data bytes + CRC */
+	memcpy(buf, block0, 16);
+	nfc_crc14443a(buf, 16, &buf[16]);
+	err = rfalTransceiveBlockingTxRx(buf, 18, rx, sizeof(rx), &rxLen, raw, rfalConvMsTo1fc(60));
+	if (err != RFAL_ERR_NONE || rxLen == 0 || (rx[0] & 0x0F) != 0x0A) {
+		snprintf(dbg, dn, "G1 dat e%d a%02X", (int)err, (rxLen ? rx[0] : 0xFF));
+		return RFAL_ERR_PROTO;
+	}
+
+	snprintf(dbg, dn, "G1 OK");
+	return RFAL_ERR_NONE;
+}
+
+/* Detect and write a saved UID to a magic target: tries MIFARE Classic Gen1a
+ * first, then falls back to a Type-2 (NTAG/Ultralight) UID-changeable tag.
+ * This path now initializes RFAL and activates the target itself — the
+ * previous code called rfalT2TPollerWrite with no field/activation, which is
+ * why writes always failed. */
+static ReturnCode nfc_write_uid_to_target(nfc_run_ctx_t *c, char *dbg, int dn)
+{
+	ReturnCode      err;
+	rfalNfcaSensRes sens;
+	rfalNfcaSelRes  sel;
+	uint8_t         nfcid[10];
+	uint8_t         nfcidLen = 0;
+	bool            coll = false;
+	uint8_t         block0[16];
+
+	snprintf(dbg, dn, "no result");
+
+	/* Build block 0: prefer the saved MIFARE Classic dump's block 0 (keeps the
+	 * real SAK/ATQA/manufacturer bytes); otherwise synthesize from the UID. */
+	if (c->dump.has_dump && c->dump.unit_size == 16 && c->dump.data && c->dump.unit_count >= 1) {
+		memcpy(block0, c->dump.data, 16);
+	} else {
+		uint8_t ulen = (c->head.uid_len > 4) ? 4 : c->head.uid_len;
+		memset(block0, 0, sizeof(block0));
+		memcpy(block0, c->head.uid, ulen);
+		block0[4] = (uint8_t)(block0[0] ^ block0[1] ^ block0[2] ^ block0[3]); /* BCC */
+		block0[5] = 0x08;             /* SAK: MIFARE Classic 1K */
+		block0[6] = 0x04; block0[7] = 0x00; /* ATQA */
+	}
+
+	/* Bring up the NFC front-end exactly like the read path: NFC_Polling_Init
+	 * enables EN_EXT_5V power, registers the ST25R3916 IRQ, and initializes
+	 * RFAL. Without this the chip is unpowered and init fails (the bug when
+	 * entering Write UID from a saved card with no prior live read). Paired
+	 * with NFC_Polling_DeInit() in the caller. */
+	NFC_Polling_Init();
+
+	/* --- Try MIFARE Classic Gen1a magic --- */
+	bool card_seen = false;
+	rfalNfcaPollerInitialize();
+	rfalFieldOnAndStartGT();
+	err = rfalNfcaPollerCheckPresence(RFAL_14443A_SHORTFRAME_CMD_WUPA, &sens);
+	if (err == RFAL_ERR_NONE) {
+		card_seen = true;   /* a card answered WUPA */
+		if (nfc_gen1a_write_block0(block0, dbg, dn) == RFAL_ERR_NONE) {
+			rfalFieldOff();
+			return RFAL_ERR_NONE;
+		}
+		/* dbg now holds the Gen1a failure step; preserved below */
+	} else {
+		snprintf(dbg, dn, "WUPA1 e%d (no card?)", (int)err);
+	}
+	rfalFieldOff();
+	vTaskDelay(pdMS_TO_TICKS(10));
+
+	/* --- Fall back to a Type-2 (NTAG/Ultralight) UID-changeable tag.
+	 * Don't clobber the Gen1a diagnostic unless this path is more informative
+	 * (T2T success, or no card was seen at all). --- */
+	rfalNfcaPollerInitialize();
+	rfalFieldOnAndStartGT();
+	err = rfalNfcaPollerCheckPresence(RFAL_14443A_SHORTFRAME_CMD_WUPA, &sens);
+	if (err != RFAL_ERR_NONE) {
+		if (!card_seen) snprintf(dbg, dn, "WUPA2 e%d (no card?)", (int)err);
+		rfalFieldOff();
+		return err;
+	}
+	err = rfalNfcaPollerSingleCollisionResolution(1, &coll, &sel, nfcid, &nfcidLen);
+	if (err != RFAL_ERR_NONE) {
+		if (!card_seen) snprintf(dbg, dn, "select e%d", (int)err);
+		rfalFieldOff();
+		return err;
+	}
+
+	/* Only a genuine Type-2 tag (Ultralight/NTAG) has SAK 0x00. MIFARE Classic
+	 * is SAK 0x08/0x18/0x09 — rfalNfcaIsSelResT2T() wrongly matches it because
+	 * it only inspects bits 5-6, so check SAK directly here. */
+	if (sel.sak == 0x00) {
+		err = rfalT2TPollerWrite(0, c->head.uid);
+		if (err == RFAL_ERR_NONE && c->head.uid_len > 4) {
+			err = rfalT2TPollerWrite(1, &c->head.uid[4]);
+		}
+		snprintf(dbg, dn, (err == RFAL_ERR_NONE) ? "T2T OK" : "T2T wr e%d", (int)err);
+		rfalFieldOff();
+		return err;
+	}
+
+	/* MIFARE Classic (or other non-T2T): keep the Gen1a step diagnostic from the
+	 * first attempt so we can see why the backdoor write failed; if there wasn't
+	 * one, report the SAK that answered. */
+	if (!card_seen) snprintf(dbg, dn, "SAK %02X notG1", sel.sak);
+	rfalFieldOff();
+	return RFAL_ERR_PROTO;
+}
+
 static void nfc_utils_write_uid_run(void)
 {
 	nfc_run_ctx_t *c = nfc_ctx_get();
@@ -1252,11 +1420,9 @@ static void nfc_utils_write_uid_run(void)
 				u8g2_DrawStr(&m1_u8g2, 4, 40, "Hold card steady");
 				m1_u8g2_nextpage();
 
-				ReturnCode err = rfalT2TPollerWrite(0, c->head.uid);
-				if (err == RFAL_ERR_NONE && c->head.uid_len > 4)
-				{
-					err = rfalT2TPollerWrite(1, &c->head.uid[4]);
-				}
+				char dbg[32] = {0};
+				ReturnCode err = nfc_write_uid_to_target(c, dbg, sizeof(dbg));
+				NFC_Polling_DeInit(); /* power down NFC front-end (pairs with bring-up) */
 
 				u8g2_FirstPage(&m1_u8g2);
 				u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
@@ -1267,10 +1433,12 @@ static void nfc_utils_write_uid_run(void)
 				} else {
 					u8g2_DrawStr(&m1_u8g2, 4, 25, "Write Failed!");
 					u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
-					u8g2_DrawStr(&m1_u8g2, 4, 40, "Use Magic/Gen1a card");
+					/* show the exact failing step so the RF path is debuggable
+					 * without a serial console (remove once write is confirmed) */
+					u8g2_DrawStr(&m1_u8g2, 4, 40, dbg);
 				}
 				m1_u8g2_nextpage();
-				vTaskDelay(pdMS_TO_TICKS(2000));
+				vTaskDelay(pdMS_TO_TICKS(4000));
 				return;
 			}
 		}
@@ -4039,6 +4207,41 @@ void nfc_saved_browse_gui_init(void)
  *         from a reader, enabling offline key recovery.
  */
 /*============================================================================*/
+/* Progress/cancel tick for the mfkey32 solver. Called ~every 32768 inner
+ * iterations. Yields so the (paused) watchdog task keeps feeding the IWDG and
+ * the rest of the system stays alive, redraws progress when the MSB chunk
+ * advances, and returns false (abort) if BACK is pressed. */
+static uint8_t s_mfkey_last_round = 0xFF;
+
+static bool nfc_mfkey_progress_tick(int msb_round, void *ctx)
+{
+	(void)ctx;
+	vTaskDelay(1); /* let watchdog task + others run during the long solve */
+
+	S_M1_Buttons_Status bs;
+	if (xQueueReceive(button_events_q_hdl, &bs, 0) == pdTRUE) {
+		if (bs.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK) {
+			return false;
+		}
+	}
+
+	if ((uint8_t)msb_round != s_mfkey_last_round) {
+		s_mfkey_last_round = (uint8_t)msb_round;
+		char line[24];
+		snprintf(line, sizeof(line), "Cracking %d/16", msb_round + 1);
+		u8g2_FirstPage(&m1_u8g2);
+		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+		u8g2_DrawStr(&m1_u8g2, 4, 14, "Detect Reader");
+		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+		u8g2_DrawStr(&m1_u8g2, 4, 30, "Recovering key...");
+		u8g2_DrawStr(&m1_u8g2, 4, 42, line);
+		u8g2_DrawStr(&m1_u8g2, 4, 54, "BACK to cancel");
+		m1_u8g2_nextpage();
+	}
+	return true;
+}
+
 void nfc_detect_reader(void)
 {
 	S_M1_Buttons_Status bs;
@@ -4153,17 +4356,87 @@ void nfc_detect_reader(void)
 			m1_fb_close_file(&f);
 		}
 
-		/* Show result */
+	}
+
+	/* On-device key recovery: needs two auth samples sharing (sector, keyType).
+	 * mfkey32v2 tolerates differing tag nonces. The recovered key is verified
+	 * against the second sample inside the solver, so a returned key is correct
+	 * by construction. Falls back to the saved nonce file on no pair / cancel. */
+	uint64_t rkey = 0;
+	bool      rfound = false;
+	uint8_t   rsec = 0, rkt = 0;
+	int       a, b, i0 = -1, i1 = -1;
+	for (a = 0; a < (int)captured && i0 < 0; a++) {
+		for (b = a + 1; b < (int)captured; b++) {
+			if (mfkey_samples[a].sector == mfkey_samples[b].sector &&
+			    mfkey_samples[a].keyType == mfkey_samples[b].keyType) {
+				i0 = a; i1 = b;
+				rsec = mfkey_samples[a].sector;
+				rkt  = mfkey_samples[a].keyType;
+				break;
+			}
+		}
+	}
+
+	if (i0 >= 0) {
+		s_mfkey_last_round = 0xFF;
+		m1_wdt_pause(); /* WDT task keeps feeding IWDG; our tick yields to it */
+		rfound = mfkey32v2_recover(
+			mfkey_samples[i0].uid,
+			mfkey_samples[i0].nt, mfkey_samples[i0].nr, mfkey_samples[i0].ar,
+			mfkey_samples[i1].nt, mfkey_samples[i1].nr, mfkey_samples[i1].ar,
+			&rkey, nfc_mfkey_progress_tick, NULL);
+		m1_wdt_unpause();
+	}
+
+	if (rfound) {
+		uint8_t kb[6];
+		for (int k = 0; k < 6; k++) kb[k] = (uint8_t)(rkey >> ((5 - k) * 8));
+		char keystr[16];
+		snprintf(keystr, sizeof(keystr), "%02X%02X%02X%02X%02X%02X",
+			kb[0], kb[1], kb[2], kb[3], kb[4], kb[5]);
+
+		char path[40];
+		snprintf(path, sizeof(path), "0:/NFC/keys_%08lX.txt",
+			(unsigned long)mfkey_samples[i0].uid);
+		FIL kf;
+		if (m1_fb_open_new_file(&kf, path) == 0) {
+			char line[64];
+			snprintf(line, sizeof(line), "Sector %u Key%c: %s\r\n",
+				(unsigned)rsec, (rkt == MFC_CMD_AUTH_A) ? 'A' : 'B', keystr);
+			m1_fb_write_to_file(&kf, line, strlen(line));
+			m1_fb_close_file(&kf);
+		}
+
+		/* Also emit a Proxmark-ready dictionary: bare 12-hex key, one per line,
+		 * LF-terminated. Feed straight to `hf mf fchk --1k -f keys_<UID>.dic`
+		 * (or `hf mf chk -f ...`). This is the M1->Proxmark hand-off artifact. */
+		char dicpath[40];
+		snprintf(dicpath, sizeof(dicpath), "0:/NFC/keys_%08lX.dic",
+			(unsigned long)mfkey_samples[i0].uid);
+		FIL df;
+		if (m1_fb_open_new_file(&df, dicpath) == 0) {
+			char dline[16];
+			snprintf(dline, sizeof(dline), "%s\n", keystr);
+			m1_fb_write_to_file(&df, dline, strlen(dline));
+			m1_fb_close_file(&df);
+		}
+
+		char l2[32];
+		snprintf(l2, sizeof(l2), "S%u %c %s", (unsigned)rsec,
+			(rkt == MFC_CMD_AUTH_A) ? 'A' : 'B', keystr);
+		m1_message_box(&m1_u8g2, "Key Recovered!", l2, "saved to SD", "BACK to return");
+	}
+	else if (captured > 0) {
 		char result_line[32];
 		snprintf(result_line, sizeof(result_line), "%u nonces saved", (unsigned)captured);
 		m1_message_box(&m1_u8g2,
 			"Detect Reader",
-			result_line,
+			(i0 >= 0) ? "No key (re-try)" : result_line,
 			"/NFC/mfkey_nonces.txt",
 			"BACK to return");
 	}
-	else
-	{
+	else {
 		m1_message_box(&m1_u8g2,
 			"Detect Reader",
 			"No nonces captured",

@@ -29,7 +29,7 @@
 - **NFC Fuzzer** — protocol testing tool
 - **MIFARE Classic Crypto1** support
 - **Recovered-key report** — after a dictionary read, view the Key A/B recovered for each sector and save it to `NFC/<UID>_keys.txt`
-- **MFKey Detect** — emulate a card and capture reader authentication nonces for offline key recovery
+- **MFKey Detect** — emulate a card, capture reader authentication nonces, and recover the MIFARE Classic sector key **on-device** (mfkey32v2 Crypto-1 attack, ~2–3 min, key saved to `NFC/keys_<UID>.txt` plus a Proxmark-ready `NFC/keys_<UID>.dic`); nonces are also dumped to SD for offline tools
 - **Maximum Power Carrier** — 40% modulation (ST25R3916 hardware maximum)
 - **Long Duration Tests** — carrier transmissions up to 60 seconds
 - **False Positive Prevention** — validation checks in scan functions
@@ -64,6 +64,22 @@
 ### External Apps
 - **ELF app loader** — load and run third-party apps from SD card
 - Browse and launch `.m1app` files from the Apps menu
+- **File Tools** — manage SD files, mount/unmount the card, and view in-app
+  card info with filesystem, capacity, free space, cluster size, and label
+- **Hex Viewer** — inspect files with paged hex rows, ASCII preview, clear
+  page/total position, safe EOF clamping, and binary-safe printable ASCII
+- **System Dashboard** — live overview for battery, SD, USB, ESP32 link,
+  firmware version, heap health, and watchdog reset state
+- **Clock** — local time plus relative offset pages with date rollover and
+  half-hour offset support
+- **Dab Timer** — adjustable countdown with pause, alert beeps, and a completed
+  session counter
+- **DVD Logo** — bouncing logo toy with speed, trail, pause/reset controls, and
+  bounce/corner stats
+- **Stock Backlight** — stock LP5814 on/off and brightness control with saved
+  brightness changes
+- **RGB Backlight** — SK6805 mod control with live on/brightness/reactive state,
+  presets, effects, custom RGB editing, and saved settings
 - Download ready-to-use apps and the App SDK at **[m1-sdk](https://github.com/bedge117/m1-sdk)**
 
 ### Games
@@ -74,7 +90,9 @@
 - **2.4G Survey** — summarize nearby AP count, strongest signal, and busiest channel
 - **Connect** — join 2.4 GHz networks with password entry
 - **Saved Networks** — manage stored WiFi credentials
-- **Sync RTC** — sync the device clock over WiFi SNTP
+- **Sync RTC** — sync the device clock over WiFi SNTP; the RTC is now
+  preserved across firmware flashes, resets, and standby/power-cycle paths
+  while the backup domain remains powered
 - **Status** — view connection state, IP address, signal strength
 - **Attack List** — save targets for offensive tools
 - **Offensive Tools** — WiFi penetration testing utilities:
@@ -87,6 +105,13 @@
   - **Probe Sniff** — capture client probe requests
   - **Evil Twin** — open rogue AP with a DNS-hijack captive portal (editable SSID/channel)
 - **ESP32-C6 coprocessor** provides 2.4 GHz WiFi (WiFi 6) and Bluetooth LE 5.0
+- **WiFi stats fallback** — `WiFi 2.4G -> Stats` shows detailed ESP32-C6 link
+  stats when custom firmware supports it, or basic mode/IP/MAC data through
+  standard AT commands; idle zero-value fields are shown as unavailable, and
+  the ESP32 Link diagnostics app uses the same fallback
+- **ESP32 firmware verifier** — validate a selected ESP32-C6 `.bin` and matching
+  32-byte `.bin.md5` companion file from `System -> ESP32 update` before
+  flashing; standard md5sum-style files and filename/extension casing are accepted
 
 ### GPIO Enhancements
 - **Pin Map** — graphical dual-column pin header layout displaying real-time logic states (HIGH/LOW) with on-the-fly pin mode configuration (Pull-Up, Pull-Down, Floating)
@@ -126,7 +151,9 @@
 - **Attack List Integration** — auto-fill BSSID/channel in offensive tools
 - **RGB Backlight Mod (SK6805)** — control menu with brightness, color presets, custom RGB editor, and effects (Breathe, Color Cycle, Strobe, Fade)
 - **Reactive Backlight** — drives the RGB mod from live system state: battery level (green/amber/red), charging pulse (blue), and notification flash (white)
-- **Animated main-menu logo** — the M1 owl idly bounces DVD-screensaver style in its panel, then slides off and returns on a loop; cosmetic only, any keypress restores the static menu
+- **Animated main-menu logo** — the updated T-1000 logo idly bounces DVD-screensaver style in its panel, then slides off and returns on a loop; cosmetic only, any keypress restores the static menu
+- **Idle power savings** — the CPU light-sleeps (`WFI`) when idle instead of busy-spinning, while keeping the millisecond timebase running so UI and timeouts stay responsive on battery; the ESP32-C6 coprocessor also powers off automatically after 60 s of no WiFi/BT use, extending battery life
+- **Slimmer firmware image** — dropped unused FatFs Japanese code-page tables (~59 KB), keeping plenty of headroom in the 1023 KB firmware bank
 
 ## Companion App
 
@@ -276,6 +303,11 @@ This project is a fork of and builds upon the work of:
 - [Monstatek/M1](https://github.com/Monstatek/M1) - The original firmware repository from which the M1 platform originated.
 
 We would like to express our gratitude to the original developers and contributors of both projects for their foundational work and contributions to the M1 platform.
+
+We also gratefully incorporate work from:
+- [da-pingwing/M1_T-1000_RFID](https://github.com/da-pingwing/M1_T-1000_RFID) ("Monstatek M1 RFID Patch", GPL-3.0) — the T5577 write-timing fix, the LF read TIM-clock HardFault fix, and the `m1_diag` on-device reset-cause / write-phase diagnostics.
+- [noproto/FlipperMfkey](https://github.com/noproto/FlipperMfkey) (GPL-3.0) — the memory-bounded Crapto-1 recovery that the on-device mfkey32 solver is ported from.
+- [Flipper Zero firmware](https://github.com/flipperdevices/flipperzero-firmware) (GPL-3.0) — the LF RFID protocol stack (`lfrfid/`) and NFC parsers.
 
 ## License
 

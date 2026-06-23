@@ -55,6 +55,8 @@
 #define ESP32_START_ADDRESS_MAX					0x100000 // 1024K
 #define ESP32_START_ADDRESS_LO_INC				0x1000 // normal address increment, 4K each step
 #define ESP32_START_ADDRESS_HI_INC				0x10000 // fast address increment, 64K each step
+#define ESP32_MD5_SUFFIX						".md5"
+#define ESP32_MD5_NAME_LEN						(ESP_FILE_NAME_LEN_MAX + sizeof(ESP32_MD5_SUFFIX))
 
 //************************** C O N S T A N T **********************************/
 
@@ -81,11 +83,19 @@ void setting_esp32_gui_update(const S_M1_Menu_t *phmenu, uint8_t sel_item);
 void setting_esp32_xkey_handler(S_M1_Key_Event event, uint8_t button_id, uint8_t sel_item);
 void setting_esp32_image_file(void);
 void setting_esp32_start_address(void);
+void setting_esp32_verify_image(void);
 void setting_esp32_firmware_update(void);
 
 static esp_loader_error_t m1_fw_app(FIL *hfile);
 static esp_loader_error_t m1_fw_flash_binary(uint8_t *payload, size_t size);
 static uint16_t esp32_get_boot_info(uint8_t *boot_msg, uint16_t boot_msg_len, uint16_t *len);
+static uint8_t esp32_verify_selected_image(void);
+static bool esp32_md5_normalize_hex(uint8_t *hex);
+static bool esp32_filename_has_bin_ext(const char *filename);
+static bool esp32_ascii_case_equal(const char *a, const char *b);
+static char esp32_ascii_lower(char ch);
+static char esp32_ascii_upper(char ch);
+static uint8_t esp32_open_md5_companion_file(void);
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
 
@@ -100,10 +110,10 @@ static uint16_t esp32_get_boot_info(uint8_t *boot_msg, uint16_t boot_msg_len, ui
 void setting_esp32_init(void)
 {
 	if ( !pfullpath )
-		pfullpath = malloc(ESP_FILE_PATH_LEN_MAX + ESP_FILE_NAME_LEN_MAX);
+		pfullpath = malloc(ESP_FILE_PATH_LEN_MAX + ESP32_MD5_NAME_LEN + 2U);
 	assert(pfullpath!=NULL);
 	if ( !pfilename_md5 )
-		pfilename_md5 = malloc(ESP_FILE_NAME_LEN_MAX);
+		pfilename_md5 = malloc(ESP32_MD5_NAME_LEN);
 	assert(pfilename_md5!=NULL);
 
 	start_address = ESP32_START_ADDRESS_MIN;
@@ -193,7 +203,54 @@ void setting_esp32_xkey_handler(S_M1_Key_Event event, uint8_t button_id, uint8_t
 /******************************************************************************/
 void setting_esp32_image_file(void)
 {
-	uint8_t uret, ext;
+	f_info = storage_browse(NULL);
+
+	esp32_update_status = M1_FW_IMAGE_FILE_TYPE_ERROR; // reset
+	if ( f_info != NULL && f_info->file_is_selected )
+	{
+		if ( esp32_filename_has_bin_ext(f_info->file_name) )
+		{
+			esp32_update_status = esp32_verify_selected_image();
+		}
+	} // if ( f_info->file_is_selected )
+
+	xQueueReset(main_q_hdl); // Reset main q before return
+
+} // void setting_esp32_image_file(void)
+
+
+
+/******************************************************************************/
+/**
+  * @brief
+  * @param None
+  * @retval None
+  */
+/******************************************************************************/
+void setting_esp32_verify_image(void)
+{
+	if ( f_info == NULL || !f_info->file_is_selected )
+	{
+		setting_esp32_image_file();
+		return;
+	}
+
+	esp32_update_status = esp32_verify_selected_image();
+	xQueueReset(main_q_hdl); // Reset main q before return
+} // void setting_esp32_verify_image(void)
+
+
+
+/******************************************************************************/
+/**
+  * @brief
+  * @param None
+  * @retval None
+  */
+/******************************************************************************/
+static uint8_t esp32_verify_selected_image(void)
+{
+	uint8_t uret;
     uint8_t payload[ESP32_IMAGE_CHUNK_SIZE];
     uint8_t raw_md5[16] = {0};
     /* Zero termination require 1 byte */
@@ -201,51 +258,23 @@ void setting_esp32_image_file(void)
     uint8_t hex_md5_infile[MAX(MD5_SIZE_ROM, MD5_SIZE_STUB) + 1] = {0};
     size_t count, sum;
 
-	bool has_md5 = false;
-
-	f_info = storage_browse(NULL);
-
-	esp32_update_status = M1_FW_IMAGE_FILE_TYPE_ERROR; // reset
-	if ( f_info->file_is_selected )
+	if ( f_info == NULL || !f_info->file_is_selected )
 	{
-		do
-		{
-			uret = strlen(f_info->file_name);
-			if ( !uret )
-				break;
-			strcpy(pfilename_md5, f_info->file_name);
-			ext = 0;
-			while ( uret )
-			{
-				ext++;
-				if ( pfilename_md5[--uret]=='.' ) // Find the dot
-					break;
-			} // while ( uret )
-			if ( !uret || (ext!=4) ) // ext==length of '.bin'
-				break;
-			if ( strcmp(&pfilename_md5[uret], ".bin" ))
-				break;
-			// Check for optional .md5 companion file
-			strcpy(&pfilename_md5[uret + 1], "md5");
-			m1_fb_dyn_strcat(pfullpath, 2, "",  f_info->dir_name, pfilename_md5);
-			uret = m1_fb_open_file(&hfile_fw, pfullpath);
-			if ( !uret )
-			{
-				has_md5 = true;
-				m1_fb_close_file(&hfile_fw);
-			}
-			esp32_update_status = M1_FW_UPDATE_READY; // Proceed with or without MD5
-		} while (0);
-	} // if ( f_info->file_is_selected )
+		return M1_FW_UPDATE_NOT_READY;
+	}
 
+	if ( hfile_fw.obj.fs != NULL )
+	{
+		m1_fb_close_file(&hfile_fw);
+	}
+
+	if ( !esp32_filename_has_bin_ext(f_info->file_name) )
+	{
+		return M1_FW_IMAGE_FILE_TYPE_ERROR;
+	}
 	uret = M1_FW_UPDATE_NOT_READY;
     do
     {
-        if ( esp32_update_status != M1_FW_UPDATE_READY )
-        {
-        	break;
-        }
-
 		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG); // set to background color
 		// Draw box with background color to clear the area for the hourglass icon
 		u8g2_DrawBox(&m1_u8g2, M1_LCD_DISPLAY_WIDTH - 28, THIS_LCD_MENU_TEXT_FIRST_ROW_Y + THIS_LCD_MENU_TEXT_ROW_SPACE + 2, 24, THIS_LCD_MENU_TEXT_ROW_SPACE);
@@ -253,34 +282,36 @@ void setting_esp32_image_file(void)
     	u8g2_DrawXBMP(&m1_u8g2, M1_LCD_DISPLAY_WIDTH - 24, 16, 18, 32, hourglass_18x32); // Draw icon
     	m1_u8g2_nextpage(); // Update display RAM
 
-		// Optional MD5 verification: only if .md5 companion file exists
-		if ( has_md5 )
-		{
-        	m1_fb_dyn_strcat(pfullpath, 2, "",  f_info->dir_name, pfilename_md5);
-        	uret = m1_fb_open_file(&hfile_fw, pfullpath);
-        	if ( !uret )
-        	{
-        		image_size = f_size(&hfile_fw);
-		    	// MD5 hash is a 32-character string (16 hex values)
-		    	if ( image_size != MD5_SIZE_ROM )
-		    	{
-		    		m1_fb_close_file(&hfile_fw);
-		    		uret = M1_FW_CRC_FILE_INVALID;
-		    		break;
-		    	} // if ( image_size != MD5_SIZE_ROM )
-		    	count = m1_fb_read_from_file(&hfile_fw, hex_md5_infile, MD5_SIZE_ROM);
-		    	m1_fb_close_file(&hfile_fw);
-		    	if ( count != MD5_SIZE_ROM )
-		    	{
-		    		uret = M1_FW_CRC_FILE_ACCESS_ERROR;
-		    		break;
-		    	}
-        	} // if ( !uret )
-        	else
-        	{
-        		has_md5 = false; // Couldn't re-open, skip verification
-        	}
-		} // if ( has_md5 )
+    	uret = esp32_open_md5_companion_file();
+    	if ( !uret )
+    	{
+    		image_size = f_size(&hfile_fw);
+	    	// Accept raw 32-byte MD5 files and standard md5sum files:
+	    	// "<32 hex chars>  filename\n".
+	    	if ( image_size < MD5_SIZE_ROM )
+	    	{
+	    		m1_fb_close_file(&hfile_fw);
+	    		uret = M1_FW_CRC_FILE_INVALID;
+	    		break;
+	    	} // if ( image_size != MD5_SIZE_ROM )
+	    	count = m1_fb_read_from_file(&hfile_fw, (char *)hex_md5_infile, MD5_SIZE_ROM);
+	    	m1_fb_close_file(&hfile_fw);
+	    	if ( count != MD5_SIZE_ROM )
+	    	{
+	    		uret = M1_FW_CRC_FILE_ACCESS_ERROR;
+	    		break;
+	    	}
+	    	if ( !esp32_md5_normalize_hex(hex_md5_infile) )
+	    	{
+	    		uret = M1_FW_CRC_FILE_INVALID;
+	    		break;
+	    	}
+    	} // if ( !uret )
+    	else
+    	{
+    		uret = M1_FW_CRC_FILE_ACCESS_ERROR;
+    		break;
+    	}
 
         uret = m1_fb_dyn_strcat(pfullpath, 2, "",  f_info->dir_name, f_info->file_name);
         uret = m1_fb_open_file(&hfile_fw, pfullpath);
@@ -288,50 +319,49 @@ void setting_esp32_image_file(void)
 		{
 			image_size = f_size(&hfile_fw);
 		    // Both the address and image size must be aligned to 4 bytes
-		    if ( (!image_size) || (image_size % 4 != 0) )
+		    if ( (!image_size) || (image_size % 4 != 0) || (image_size > ESP32_IMAGE_SIZE_MAX) )
 		    {
 		    	m1_fb_close_file(&hfile_fw);
 		    	uret = M1_FW_IMAGE_SIZE_INVALID;
 		    	break;
 		    } // if ( (!image_size) || (image_size % 4 != 0) )
 #ifdef MD5_ENABLED
-			if ( has_md5 )
+			mh_md5_init(start_address, image_size);
+			sum = image_size;
+			while ( sum )
 			{
-				mh_md5_init(start_address, image_size);
-				sum = image_size;
-				while ( sum )
-				{
-					count = m1_fb_read_from_file(&hfile_fw, payload, ESP32_IMAGE_CHUNK_SIZE);
-					if ( !count ) // Read failed?
-					{
-						uret = M1_FW_IMAGE_FILE_ACCESS_ERROR;
-						break;
-					}
-					sum -= count;
-					mh_md5_update(payload, (count + 3) & ~3);
-					m1_wdt_reset();
-				} // while ( sum )
-
-				if ( !sum )
-				{
-				    mh_md5_final(raw_md5);
-				    mh_hexify(raw_md5, hex_md5);
-				    // Compare md5 here
-				    uret = memcmp(hex_md5_infile, hex_md5, MD5_SIZE_ROM);
-				    if ( uret )
-				    {
-				    	// MD5 mismatch — warn but don't block flashing
-						uret = 0;
-				    }
-				} // if ( !sum )
-				else
+				count = m1_fb_read_from_file(&hfile_fw, (char *)payload, ESP32_IMAGE_CHUNK_SIZE);
+				if ( !count ) // Read failed?
 				{
 					uret = M1_FW_IMAGE_FILE_ACCESS_ERROR;
 					break;
 				}
-			} // if ( has_md5 )
+				sum -= count;
+				mh_md5_update(payload, (count + 3) & ~3);
+				m1_wdt_reset();
+			} // while ( sum )
+
+			if ( !sum )
+			{
+			    mh_md5_final(raw_md5);
+			    mh_hexify(raw_md5, hex_md5);
+			    uret = memcmp(hex_md5_infile, hex_md5, MD5_SIZE_ROM);
+			    if ( uret )
+				{
+					m1_fb_close_file(&hfile_fw);
+					uret = M1_FW_CRC_CHECKSUM_UNMATCHED;
+					break;
+				}
+			} // if ( !sum )
+			else
+			{
+				m1_fb_close_file(&hfile_fw);
+				uret = M1_FW_IMAGE_FILE_ACCESS_ERROR;
+				break;
+			}
 #endif
-			uret = 0; // success
+			f_lseek(&hfile_fw, 0); // Leave selected image open for the flash step
+			uret = M1_FW_UPDATE_READY; // success
 		} // if ( !uret )
 		else
 		{
@@ -341,18 +371,152 @@ void setting_esp32_image_file(void)
 		M1_LOG_I("ESP32", "File OK size=%lu\r\n", (unsigned long)image_size);
     } while (0);
 
-    if ( esp32_update_status==M1_FW_UPDATE_READY )
-    {
-    	if ( uret ) // error?
-    	{
-    		//m1_fb_close_file(&hfile_fw);
-    		esp32_update_status = uret;
-    	} // if ( uret )
-    } // if ( fw_update_status==M1_FW_UPDATE_READY )
+    return uret;
+} // static uint8_t esp32_verify_selected_image(void)
 
-	xQueueReset(main_q_hdl); // Reset main q before return
 
-} // void setting_esp32_image_file(void)
+
+/******************************************************************************/
+/**
+  * @brief
+  * @param None
+  * @retval None
+  */
+/******************************************************************************/
+static uint8_t esp32_open_md5_companion_file(void)
+{
+	size_t filename_len;
+	uint8_t uret;
+
+	snprintf(pfilename_md5, ESP32_MD5_NAME_LEN, "%s.md5", f_info->file_name);
+	m1_fb_dyn_strcat(pfullpath, 2, "",  f_info->dir_name, pfilename_md5);
+	uret = m1_fb_open_file(&hfile_fw, pfullpath);
+	if ( !uret )
+		return uret;
+
+	snprintf(pfilename_md5, ESP32_MD5_NAME_LEN, "%s.MD5", f_info->file_name);
+	m1_fb_dyn_strcat(pfullpath, 2, "",  f_info->dir_name, pfilename_md5);
+	uret = m1_fb_open_file(&hfile_fw, pfullpath);
+	if ( !uret )
+		return uret;
+
+	strcpy(pfilename_md5, f_info->file_name);
+	filename_len = strlen(pfilename_md5);
+	strcpy(&pfilename_md5[filename_len - 3U], "md5");
+	m1_fb_dyn_strcat(pfullpath, 2, "",  f_info->dir_name, pfilename_md5);
+	uret = m1_fb_open_file(&hfile_fw, pfullpath);
+	if ( !uret )
+		return uret;
+
+	strcpy(&pfilename_md5[filename_len - 3U], "MD5");
+	m1_fb_dyn_strcat(pfullpath, 2, "",  f_info->dir_name, pfilename_md5);
+	return m1_fb_open_file(&hfile_fw, pfullpath);
+} // static uint8_t esp32_open_md5_companion_file(void)
+
+
+
+/******************************************************************************/
+/**
+  * @brief
+  * @param None
+  * @retval None
+  */
+/******************************************************************************/
+static bool esp32_md5_normalize_hex(uint8_t *hex)
+{
+	for (uint8_t i = 0; i < MD5_SIZE_ROM; i++)
+	{
+		if ((hex[i] >= '0') && (hex[i] <= '9'))
+			continue;
+		if ((hex[i] >= 'A') && (hex[i] <= 'F'))
+			continue;
+		if ((hex[i] >= 'a') && (hex[i] <= 'f'))
+		{
+			hex[i] = (uint8_t)esp32_ascii_upper((char)hex[i]);
+			continue;
+		}
+		return false;
+	}
+
+	return true;
+} // static bool esp32_md5_normalize_hex(uint8_t *hex)
+
+
+
+/******************************************************************************/
+/**
+  * @brief
+  * @param None
+  * @retval None
+  */
+/******************************************************************************/
+static bool esp32_filename_has_bin_ext(const char *filename)
+{
+	const char *ext;
+
+	if ( filename == NULL || filename[0] == '\0' )
+		return false;
+
+	ext = strrchr(filename, '.');
+	if ( ext == NULL || ext == filename )
+		return false;
+
+	return esp32_ascii_case_equal(ext, ".bin");
+} // static bool esp32_filename_has_bin_ext(const char *filename)
+
+
+
+/******************************************************************************/
+/**
+  * @brief
+  * @param None
+  * @retval None
+  */
+/******************************************************************************/
+static bool esp32_ascii_case_equal(const char *a, const char *b)
+{
+	while ( *a && *b )
+	{
+		if ( esp32_ascii_lower(*a++) != esp32_ascii_lower(*b++) )
+			return false;
+	}
+
+	return (*a == '\0') && (*b == '\0');
+} // static bool esp32_ascii_case_equal(const char *a, const char *b)
+
+
+
+/******************************************************************************/
+/**
+  * @brief
+  * @param None
+  * @retval None
+  */
+/******************************************************************************/
+static char esp32_ascii_lower(char ch)
+{
+	if ( (ch >= 'A') && (ch <= 'Z') )
+		return (char)(ch + ('a' - 'A'));
+
+	return ch;
+} // static char esp32_ascii_lower(char ch)
+
+
+
+/******************************************************************************/
+/**
+  * @brief
+  * @param None
+  * @retval None
+  */
+/******************************************************************************/
+static char esp32_ascii_upper(char ch)
+{
+	if ( (ch >= 'a') && (ch <= 'z') )
+		return (char)(ch - ('a' - 'A'));
+
+	return ch;
+} // static char esp32_ascii_upper(char ch)
 
 
 
@@ -423,7 +587,9 @@ void setting_esp32_firmware_update(void)
     } while (0);
 
     if ( uret != M1_FW_UPDATE_NOT_READY )
+    {
     	esp32_update_status = uret;
+    }
 
 	if ( (uret==M1_FW_UPDATE_SUCCESS) || (uret==M1_FW_UPDATE_FAILED) )
 	{
@@ -602,6 +768,8 @@ static esp_loader_error_t m1_fw_app(FIL *hfile)
 
 
 
+
+
 /******************************************************************************/
 /**
   * @brief
@@ -734,7 +902,6 @@ void setting_esp32_gui_update(const S_M1_Menu_t *phmenu, uint8_t sel_item)
 	uint16_t msg_len, msg_id;
 	uint8_t *pboot_info;
 	char line1[32] = {0};
-	char addr_str[16] = {0};
 
 	n_items = phmenu->num_submenu_items;
 	menu_text_y = 24;
@@ -751,7 +918,6 @@ void setting_esp32_gui_update(const S_M1_Menu_t *phmenu, uint8_t sel_item)
     	m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
     	for (i=esp32_menu_scroll; i<n_items && i<esp32_menu_scroll+2; i++)
     	{
-    		uint8_t disp_idx = i - esp32_menu_scroll;
     		if ( i==sel_item )
     		{
     			u8g2_DrawBox(&m1_u8g2, 6, menu_text_y - 7, 114, 9);
@@ -828,7 +994,41 @@ void setting_esp32_gui_update(const S_M1_Menu_t *phmenu, uint8_t sel_item)
     	    	snprintf(line1, sizeof(line1), "0x%06lX", start_address);
     			break;
 
-    		case 2: // Firmware update
+    		case 2: // Verify image
+    	    	switch ( esp32_update_status )
+    			{
+    				case M1_FW_UPDATE_READY:
+    					strcpy(line1, "Image verified!");
+    					break;
+
+    				case M1_FW_CRC_FILE_ACCESS_ERROR:
+    					strcpy(line1, "MD5 file missing!");
+    					break;
+
+    				case M1_FW_CRC_FILE_INVALID:
+		    			strcpy(line1, "Invalid MD5 file!");
+						break;
+
+    				case M1_FW_CRC_CHECKSUM_UNMATCHED:
+		    			strcpy(line1, "Checksum failed!");
+		    			break;
+
+    				case M1_FW_IMAGE_FILE_ACCESS_ERROR:
+    					strcpy(line1, "Image file error!");
+    					break;
+
+    				case M1_FW_IMAGE_FILE_TYPE_ERROR:
+    				case M1_FW_IMAGE_SIZE_INVALID:
+		    			strcpy(line1, "Invalid image file!");
+		    			break;
+
+    				default:
+    					strcpy(line1, "Select image file first");
+    					break;
+    			} // switch ( esp32_update_status )
+    			break;
+
+    		case 3: // Firmware update
     			switch ( esp32_update_status )
     			{
     				case M1_FW_UPDATE_READY:

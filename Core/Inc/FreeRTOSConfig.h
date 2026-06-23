@@ -81,7 +81,10 @@ extern uint32_t SystemCoreClock;
 #define configUSE_RECURSIVE_MUTEXES              1
 #define configUSE_COUNTING_SEMAPHORES            1
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION  0
-#define configUSE_TICKLESS_IDLE                  2
+/* Tickless idle 1 = use the CM33 port's SysTick-based implementation in
+ * port.c: the RTOS tick is suppressed for the whole expected idle period
+ * (up to ~223 ms per WFI at 75 MHz) instead of waking every 1 ms. */
+#define configUSE_TICKLESS_IDLE                  1
 #define configUSE_TASK_NOTIFICATIONS             1
 #define configHEAP_CLEAR_MEMORY_ON_FREE          0
 #define configUSE_MINI_LIST_ITEM                 1
@@ -184,14 +187,17 @@ void PostSleepProcessing(uint32_t ulExpectedIdleTime);
 /* The configPRE_SLEEP_PROCESSING() and configPOST_SLEEP_PROCESSING() macros
 allow the application writer to add additional code before and after the MCU is
 placed into the low power state respectively. */
-#if configUSE_TICKLESS_IDLE == 2
+#if configUSE_TICKLESS_IDLE >= 1
 #define configPRE_SLEEP_PROCESSING(__x__)                           \
                                        do {                         \
                                          /*__x__ = 0;*/                 \
                                          PreSleepProcessing(__x__); \
                                       }while(0)
-#define configPOST_SLEEP_PROCESSING                       PostSleepProcessing
-#endif /* configUSE_TICKLESS_IDLE == 1 */
+#define configPOST_SLEEP_PROCESSING(__x__)                          \
+                                       do {                         \
+                                         PostSleepProcessing(__x__); \
+                                      }while(0)
+#endif /* configUSE_TICKLESS_IDLE >= 1 */
 /* USER CODE END Defines */
 
 #endif /* FREERTOS_CONFIG_H */

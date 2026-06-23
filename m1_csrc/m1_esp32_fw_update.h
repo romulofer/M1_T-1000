@@ -52,6 +52,7 @@ void setting_esp32_gui_update(const S_M1_Menu_t *phmenu, uint8_t sel_item);
 void setting_esp32_xkey_handler(S_M1_Key_Event event, uint8_t button_id, uint8_t sel_item);
 void setting_esp32_image_file(void);
 void setting_esp32_start_address(void);
+void setting_esp32_verify_image(void);
 void setting_esp32_firmware_update(void);
 void setting_esp32_c6_reset(void);
 

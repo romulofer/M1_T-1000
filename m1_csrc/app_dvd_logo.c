@@ -14,6 +14,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 #include "stm32h5xx_hal.h"
 #include "m1_builtin_apps.h"
@@ -53,6 +54,7 @@ static dvd_logo_state_t g_dvd_logo;
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
 
 static void dvd_logo_init(dvd_logo_state_t *st);
+static void dvd_logo_reset_position(dvd_logo_state_t *st);
 static void dvd_logo_update(dvd_logo_state_t *st);
 static void dvd_logo_draw(const dvd_logo_state_t *st);
 
@@ -61,13 +63,22 @@ static void dvd_logo_draw(const dvd_logo_state_t *st);
 static void dvd_logo_init(dvd_logo_state_t *st)
 {
     memset(st, 0, sizeof(*st));
+    st->speed = 2;
+    st->paused = false;
+    st->show_trail = false;
+    dvd_logo_reset_position(st);
+}
+
+
+static void dvd_logo_reset_position(dvd_logo_state_t *st)
+{
     st->x = (DVD_AREA_W - DVD_LOGO_W) / 2;
     st->y = DVD_AREA_Y + ((DVD_AREA_H - DVD_LOGO_H) / 2);
     st->dx = 1;
     st->dy = 1;
-    st->speed = 2;
+    st->bounces = 0U;
+    st->corners = 0U;
     st->paused = false;
-    st->show_trail = false;
 }
 
 
@@ -145,10 +156,7 @@ static void dvd_logo_draw(const dvd_logo_state_t *st)
         u8g2_DrawFrame(&m1_u8g2, st->x + 3, st->y + 3, DVD_LOGO_W, DVD_LOGO_H);
     }
 
-    u8g2_DrawBox(&m1_u8g2, st->x, st->y, DVD_LOGO_W, DVD_LOGO_H);
-    u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
     u8g2_DrawXBMP(&m1_u8g2, st->x, st->y, DVD_LOGO_W, DVD_LOGO_H, m1_logo_40x32);
-    u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
 
     if (st->paused)
     {
@@ -159,8 +167,8 @@ static void dvd_logo_draw(const dvd_logo_state_t *st)
     }
 
     snprintf(hint_buf, sizeof(hint_buf), "OK speed U trail");
-    u8g2_DrawStr(&m1_u8g2, 0, 63, hint_buf);
-    u8g2_DrawStr(&m1_u8g2, 83, 63, "D pause");
+    u8g2_DrawStr(&m1_u8g2, 0, 55, hint_buf);
+    u8g2_DrawStr(&m1_u8g2, 0, 63, "L reset D pause");
 
     m1_u8g2_nextpage();
 }
@@ -202,6 +210,10 @@ void app_dvd_logo_run(void)
         else if (btn == GAME_BTN_DOWN)
         {
             g_dvd_logo.paused = !g_dvd_logo.paused;
+        }
+        else if (btn == GAME_BTN_LEFT)
+        {
+            dvd_logo_reset_position(&g_dvd_logo);
         }
     }
 }

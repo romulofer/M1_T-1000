@@ -308,6 +308,7 @@ target_sources(m1_01 INTERFACE
     ../../NFC/NFC_drv/legacy/nfc_listener.c
     ../../NFC/NFC_drv/legacy/nfc_poller.c
     ../../NFC/NFC_drv/legacy/mfc_crypto1.c
+    ../../NFC/NFC_drv/legacy/mfkey32.c
     ../../NFC/NFC_drv/legacy/picopass/picopass_cipher.c
     ../../NFC/NFC_drv/legacy/picopass/picopass_poller.c
     ../../NFC/NFC_drv/legacy/picopass/picopass_listener.c
@@ -428,6 +429,7 @@ target_sources(m1_01 INTERFACE
     ../../m1_csrc/m1_display_data.c
     ../../m1_csrc/m1_esp32_fw_update.c
     ../../m1_csrc/m1_esp32_hal.c
+    ../../m1_csrc/m1_diag.c
     ../../m1_csrc/m1_esp_hosted_dummy.c
     ../../m1_csrc/m1_file_browser.c
     ../../m1_csrc/m1_file_util.c
@@ -492,6 +494,7 @@ target_sources(m1_01 INTERFACE
     ../../m1_csrc/game_trex.c
     ../../m1_csrc/game_pong.c
     ../../m1_csrc/game_dice.c
+    ../../m1_csrc/game_2048.c
     ../../m1_csrc/app_dab_timer.c
     ../../m1_csrc/app_dvd_logo.c
     ../../m1_csrc/app_system_dashboard.c

@@ -22,12 +22,13 @@
 #include "m1_esp32_hal.h"
 #include "m1_usb_cdc_msc.h"
 #include "m1_t1000_version.h"
+#include "m1_tasks.h"
 #include "battery.h"
 #include "esp_app_main.h"
 
 /*************************** D E F I N E S ************************************/
 
-#define DASHBOARD_PAGE_COUNT   3U
+#define DASHBOARD_PAGE_COUNT   4U
 #define DASHBOARD_POLL_MS      200U
 
 //************************** S T R U C T U R E S *******************************/
@@ -36,7 +37,8 @@ typedef enum
 {
     DASHBOARD_PAGE_OVERVIEW = 0,
     DASHBOARD_PAGE_IO,
-    DASHBOARD_PAGE_SYSTEM
+    DASHBOARD_PAGE_SYSTEM,
+    DASHBOARD_PAGE_HEALTH
 } dashboard_page_t;
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
@@ -44,6 +46,7 @@ typedef enum
 static const char *dashboard_orientation_text(void);
 static const char *dashboard_sd_status_text(S_M1_SDCard_Access_Status status);
 static void dashboard_format_uptime(uint32_t uptime_ms, char *out, size_t out_len);
+static void dashboard_format_capacity(uint32_t kb, char *out, size_t out_len);
 static void dashboard_draw_page(dashboard_page_t page);
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
@@ -103,6 +106,31 @@ static void dashboard_format_uptime(uint32_t uptime_ms, char *out, size_t out_le
 }
 
 
+static void dashboard_format_capacity(uint32_t kb, char *out, size_t out_len)
+{
+    uint32_t gb_x10;
+    uint32_t mb;
+
+    if (out == NULL || out_len == 0U)
+    {
+        return;
+    }
+
+    if (kb >= (1024UL * 1024UL))
+    {
+        gb_x10 = (uint32_t)(((uint64_t)kb * 10ULL) / (1024ULL * 1024ULL));
+        snprintf(out, out_len, "%lu.%luG",
+                 (unsigned long)(gb_x10 / 10UL),
+                 (unsigned long)(gb_x10 % 10UL));
+    }
+    else
+    {
+        mb = kb / 1024UL;
+        snprintf(out, out_len, "%luM", (unsigned long)mb);
+    }
+}
+
+
 static void dashboard_draw_page(dashboard_page_t page)
 {
     char badge[8];
@@ -156,10 +184,12 @@ static void dashboard_draw_page(dashboard_page_t page)
     {
         if (sd_info != NULL)
         {
-            snprintf(line1, sizeof(line1), "SD %s  %luG free",
+            char free_text[12];
+            dashboard_format_capacity(sd_info->free_cap_kb, free_text, sizeof(free_text));
+            snprintf(line1, sizeof(line1), "SD %s  %s free",
                      dashboard_sd_status_text(sd_status),
-                     (unsigned long)(sd_info->free_cap_kb / 1024UL / 1024UL));
-            snprintf(line2, sizeof(line2), "Card %s", sd_info->vol_label[0] ? sd_info->vol_label : "No label");
+                     free_text);
+            snprintf(line2, sizeof(line2), "Card %.20s", sd_info->vol_label[0] ? sd_info->vol_label : "No label");
         }
         else
         {
@@ -171,7 +201,7 @@ static void dashboard_draw_page(dashboard_page_t page)
                  m1_esp32_get_init_status() ? "HAL" : "Off",
                  get_esp32_main_init_status() ? "AT Ready" : "AT Idle");
     }
-    else
+    else if (page == DASHBOARD_PAGE_SYSTEM)
     {
         snprintf(line1, sizeof(line1), "%s", T1000_VERSION_STRING);
         snprintf(line2, sizeof(line2), "Compat %d.%d.%d.%d",
@@ -182,6 +212,19 @@ static void dashboard_draw_page(dashboard_page_t page)
         snprintf(line4, sizeof(line4), "Buzz %s  LED %s",
                  m1_buzzer_on ? "On" : "Off",
                  m1_led_notify_on ? "On" : "Off");
+    }
+    else
+    {
+        size_t heap_now = xPortGetFreeHeapSize();
+        size_t heap_min = xPortGetMinimumEverFreeHeapSize();
+        snprintf(line1, sizeof(line1), "Heap now %luK",
+                 (unsigned long)(heap_now / 1024U));
+        snprintf(line2, sizeof(line2), "Heap low %luK",
+                 (unsigned long)(heap_min / 1024U));
+        snprintf(line3, sizeof(line3), "Warn below %uK",
+                 (unsigned)(M1_LOW_FREE_HEAP_WARNING_SIZE / 1024U));
+        snprintf(line4, sizeof(line4), "WDT reset %s",
+                 m1_device_stat.dev_reset_by_wdt ? "Yes" : "No");
     }
 
     m1_u8g2_firstpage();

@@ -27,6 +27,7 @@
 #include "m1_power_ctl.h"
 #include "m1_fw_update.h"
 #include "m1_esp32_fw_update.h"
+#include "m1_diag.h"
 #include "m1_storage.h"
 #include "m1_wifi.h"
 #include "m1_bt.h"
@@ -159,6 +160,11 @@ S_M1_Menu_t menu_125KHz_RFID_Utilities =
     "Utilities", rfid_125khz_utilities, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
+S_M1_Menu_t menu_125KHz_RFID_Diag =
+{
+    "Diagnostics", m1_diag_screen, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+
 #ifdef M1_APP_FILE_IMPORT_ENABLE
 S_M1_Menu_t menu_125KHz_RFID_Import =
 {
@@ -167,14 +173,14 @@ S_M1_Menu_t menu_125KHz_RFID_Import =
 
 S_M1_Menu_t menu_125KHz_RFID =
 {
-    "RFID", menu_125khz_rfid_init, menu_125khz_rfid_deinit, NULL, 5, 0, menu_m1_icon_rfid, NULL,
-    {&menu_125KHz_RFID_Read, &menu_125KHz_RFID_Saved, &menu_125KHz_RFID_Add_Manually, &menu_125KHz_RFID_Import, &menu_125KHz_RFID_Utilities}
+    "RFID", menu_125khz_rfid_init, menu_125khz_rfid_deinit, NULL, 6, 0, menu_m1_icon_rfid, NULL,
+    {&menu_125KHz_RFID_Read, &menu_125KHz_RFID_Saved, &menu_125KHz_RFID_Add_Manually, &menu_125KHz_RFID_Import, &menu_125KHz_RFID_Utilities, &menu_125KHz_RFID_Diag}
 };
 #else
 S_M1_Menu_t menu_125KHz_RFID =
 {
-    "RFID", menu_125khz_rfid_init, menu_125khz_rfid_deinit, NULL, 4, 0, menu_m1_icon_rfid, NULL,
-    {&menu_125KHz_RFID_Read, &menu_125KHz_RFID_Saved, &menu_125KHz_RFID_Add_Manually, &menu_125KHz_RFID_Utilities}
+    "RFID", menu_125khz_rfid_init, menu_125khz_rfid_deinit, NULL, 5, 0, menu_m1_icon_rfid, NULL,
+    {&menu_125KHz_RFID_Read, &menu_125KHz_RFID_Saved, &menu_125KHz_RFID_Add_Manually, &menu_125KHz_RFID_Utilities, &menu_125KHz_RFID_Diag}
 };
 #endif
 
@@ -382,6 +388,11 @@ S_M1_Menu_t menu_Setting_ESP32_Start_Address =
     "Start Address", setting_esp32_start_address, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
+S_M1_Menu_t menu_Setting_ESP32_Verify_Image =
+{
+    "Verify Image", setting_esp32_verify_image, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+
 S_M1_Menu_t menu_Setting_ESP32_Firmware_Update =
 {
     "Firmware Update", setting_esp32_firmware_update, NULL, NULL, 0, 0, NULL, NULL, NULL
@@ -416,7 +427,7 @@ S_M1_Menu_t menu_Setting_Firmware_Update =
 
 S_M1_Menu_t menu_Setting_ESP32 =
 {
-    "ESP32 update", setting_esp32_init, setting_esp32_exit, setting_esp32_xkey_handler, 4, 0, NULL, setting_esp32_gui_update, {&menu_Setting_ESP32_Image_File, &menu_Setting_ESP32_Start_Address, &menu_Setting_ESP32_Firmware_Update, &menu_Setting_ESP32_C6_Reset}
+    "ESP32 update", setting_esp32_init, setting_esp32_exit, setting_esp32_xkey_handler, 5, 0, NULL, setting_esp32_gui_update, {&menu_Setting_ESP32_Image_File, &menu_Setting_ESP32_Start_Address, &menu_Setting_ESP32_Verify_Image, &menu_Setting_ESP32_Firmware_Update, &menu_Setting_ESP32_C6_Reset}
 };
 
 S_M1_Menu_t menu_Settings_About =
@@ -680,11 +691,12 @@ S_M1_Menu_t menu_Tetris  = { "Tetris",      game_tetris_run, NULL, NULL, 0, 0, N
 S_M1_Menu_t menu_TRex    = { "T-Rex Runner",game_trex_run,   NULL, NULL, 0, 0, NULL, NULL, {NULL} };
 S_M1_Menu_t menu_Pong    = { "Pong",        game_pong_run,   NULL, NULL, 0, 0, NULL, NULL, {NULL} };
 S_M1_Menu_t menu_Dice    = { "Dice Roll",   game_dice_run,   NULL, NULL, 0, 0, NULL, NULL, {NULL} };
+S_M1_Menu_t menu_2048    = { "2048",        game_2048_run,   NULL, NULL, 0, 0, NULL, NULL, {NULL} };
 
 S_M1_Menu_t menu_Games =
 {
-    "Games", NULL, NULL, NULL, 5, 0, menu_m1_icon_games, NULL,
-    {&menu_Snake, &menu_Tetris, &menu_TRex, &menu_Pong, &menu_Dice}
+    "Games", NULL, NULL, NULL, 6, 0, menu_m1_icon_games, NULL,
+    {&menu_Snake, &menu_Tetris, &menu_TRex, &menu_Pong, &menu_Dice, &menu_2048}
 };
 #endif /* M1_APP_GAMES_ENABLE */
 
