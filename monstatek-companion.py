@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 
-COMPANION_VERSION = "0.2.0"
+COMPANION_VERSION = "0.2.1"
 DEFAULT_HOST = os.environ.get("MONSTATEK_COMPANION_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("MONSTATEK_COMPANION_PORT", "32413"))
 MAX_JSON_BODY_BYTES = 15 * 1024 * 1024
@@ -163,6 +163,8 @@ def parse_cubeprogrammer_record(record: str, current_progress: int, current_stag
         ("memory programming", 12, "Programming flash"),
         ("download verified successfully", 96, "Verifying flash"),
         ("file download complete", 97, "Finalizing flash"),
+        ("reset system", 99, "Resetting M1"),
+        ("resetting system", 99, "Resetting M1"),
         ("start operation achieved successfully", 99, "Waiting for reboot"),
         ("starting embedded software successfully", 99, "Waiting for reboot"),
     ]
@@ -191,8 +193,7 @@ def run_flash_job(job_id: str, cli_path: str, filename: str, address: str, go_ad
             temp_path,
             address,
             "-v",
-            "-g",
-            go_address,
+            "-rst",
         ]
 
         update_job(
@@ -262,7 +263,7 @@ def run_flash_job(job_id: str, cli_path: str, filename: str, address: str, go_ad
             status="completed",
             progress=100,
             stage="Complete",
-            message=f"STM32CubeProgrammer flashed {filename} via {selected_port}. Please wait for the M1 to reboot.",
+            message=f"STM32CubeProgrammer flashed {filename} via {selected_port} and reset the M1.",
             rawOutput=raw_output,
             stdout=combined_output,
             stderr="",
