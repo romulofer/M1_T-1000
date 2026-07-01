@@ -13,6 +13,8 @@
 #ifndef M1_POWER_CTL_H_
 #define M1_POWER_CTL_H_
 
+#include <stdint.h>
+
 void menu_setting_power_init(void);
 void menu_setting_power_exit(void);
 
@@ -21,6 +23,9 @@ void power_reboot(void);
 void power_off(void);
 void power_off_hold_prompt(void);
 //void power_init(void);
+void m1_reboot_io_cleanup(void);
+void m1_reboot_cleanup(void);
+void m1_reboot(uint8_t device_op_status, uint32_t delay_ms);
 void m1_pre_power_down(void);
 void m1_power_down(void);
 

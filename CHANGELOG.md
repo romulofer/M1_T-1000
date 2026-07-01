@@ -2,6 +2,22 @@
 
 All notable changes to the M1 T-1000 firmware will be documented in this file.
 
+## [0.2.1] - 2026-06-29
+
+### Fixed
+- **Post-flash blank-screen boot path** — firmware update and bank-swap resets
+  now keep a visible reboot handoff screen up, put GPIO-controlled peripherals
+  into the same known state as Power -> Reboot, and force a bounded software
+  reset if the option-byte reload reset does not fire promptly. This should
+  prevent stock/non-RGB screen units from sitting blank after flashing release
+  firmware.
+- Added a small boot-recovery breadcrumb for bank-swap/CRC fallback paths so
+  serial diagnostics can show whether early boot swapped banks, fell back to
+  DFU, or had to force a reset after option-byte launch returned.
+
+### Changed
+- Bumped the T-1000 firmware version to `0.2.1`.
+
 ## [0.2.0] - 2026-06-22
 
 ### Added

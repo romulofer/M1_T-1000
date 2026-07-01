@@ -719,21 +719,15 @@ static void rpc_handle_get_device_info(const S_RPC_Frame *f)
 /**
  * @brief  Handle REBOOT — clean reset, matching the M1 device menu reboot.
  *
- * The M1's own Power → Reboot path writes DEV_OP_STATUS_REBOOT to the
- * backup register, calls m1_pre_power_down() (which shuts down peripherals
- * and drives ESP32_EN LOW via m1_system_GPIO_init()), then NVIC_SystemReset().
- * A raw NVIC_SystemReset() skips all of that, leaving the ESP32 and other
- * peripherals in indeterminate states during the brief GPIO-floating window
- * before MX_GPIO_Init() runs on the next boot.  This caused ESP32 flashing
- * to fail after a qMonstatek-initiated reboot.
+ * A raw NVIC_SystemReset() skips the normal reboot cleanup, leaving the ESP32
+ * and other peripherals in indeterminate states during the brief GPIO-floating
+ * window before MX_GPIO_Init() runs on the next boot.
  */
 static void rpc_handle_reboot(const S_RPC_Frame *f)
 {
     m1_rpc_send_ack(f->seq);
     osDelay(100);  /* Allow ACK to be transmitted */
-    startup_config_write(BK_REGS_SELECT_DEV_OP_STAT, DEV_OP_STATUS_REBOOT);
-    m1_pre_power_down();
-    NVIC_SystemReset();
+    m1_reboot(DEV_OP_STATUS_REBOOT, 0);
 }
 
 
@@ -1791,12 +1785,6 @@ static void rpc_handle_fw_bank_swap(const S_RPC_Frame *f)
 
     m1_rpc_send_ack(f->seq);
     osDelay(100);  /* Allow ACK transmission */
-
-    /* Clean shutdown before bank swap — same as reboot handler.
-     * m1_system_GPIO_init() drives ESP32_EN LOW and puts peripherals
-     * in known states.  Without this, ESP32 flashing after bank swap
-     * fails because the ESP32 is left in an indeterminate state. */
-    m1_system_GPIO_init();
 
     bl_swap_banks();
     /* bl_swap_banks triggers a system reset — we won't return here.

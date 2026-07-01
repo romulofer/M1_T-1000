@@ -19,6 +19,7 @@
 #include "stm32h5xx_hal.h"
 #include "FreeRTOSConfig.h"
 #include "main.h"
+#include "m1_system.h"
 #include "m1_sys_init.h"
 #include "m1_power_ctl.h"
 #include "m1_gpio.h"
@@ -68,6 +69,9 @@ void power_reboot(void);
 void power_off(void);
 void power_off_hold_prompt(void);
 //void power_init(void);
+void m1_reboot_io_cleanup(void);
+void m1_reboot_cleanup(void);
+void m1_reboot(uint8_t device_op_status, uint32_t delay_ms);
 void m1_pre_power_down(void);
 static void m1_system_drivers_disable(void);
 void m1_power_down(void);
@@ -491,12 +495,7 @@ static int power_reboot_kp_handler(void)
 	} // if ( m1_buttons_status[BUTTON_BACK_KP_ID]==BUTTON_EVENT_CLICK )
 	else if ( this_button_status.event[BUTTON_RIGHT_KP_ID]==BUTTON_EVENT_CLICK ) // Reboot?
 	{
-		startup_config_write(BK_REGS_SELECT_DEV_OP_STAT, DEV_OP_STATUS_REBOOT);
-		vTaskDelay(pdMS_TO_TICKS(DELAY_BEFORE_POWER_REBOOT));
-		m1_backlight_on(0);
-		u8g2_SetPowerSave(&m1_u8g2, true);
-		m1_system_GPIO_init();
-		NVIC_SystemReset();
+		m1_reboot(DEV_OP_STATUS_REBOOT, DELAY_BEFORE_POWER_REBOOT);
 	} // else if ( this_button_status.event[BUTTON_RIGHT_KP_ID]==BUTTON_EVENT_CLICK )
 
 	return 1;
@@ -734,6 +733,49 @@ static int power_shutdown_gui_message(void)
 void power_shutdown_gui_init(void)
 {
    m1_uiView_functions_register(VIEW_MODE_POWER_SHUTDOWN, power_shutdown_gui_create, power_shutdown_gui_update, power_shutdown_gui_destroy, power_shutdown_gui_message);
+}
+
+
+/*============================================================================*/
+/*
+ * Put GPIO-controlled peripherals into a known reboot state while leaving the
+ * screen lit. Firmware bank swap uses this before option-byte launch so a
+ * failed reset does not look like a dead blank screen.
+ */
+/*============================================================================*/
+void m1_reboot_io_cleanup(void)
+{
+	m1_system_GPIO_init();
+}
+
+
+/*============================================================================*/
+/*
+ * Full Power -> Reboot cleanup.
+ */
+/*============================================================================*/
+void m1_reboot_cleanup(void)
+{
+	m1_backlight_on(0);
+	u8g2_SetPowerSave(&m1_u8g2, true);
+	m1_reboot_io_cleanup();
+}
+
+
+/*============================================================================*/
+/*
+ * Shared runtime reboot path.
+ */
+/*============================================================================*/
+void m1_reboot(uint8_t device_op_status, uint32_t delay_ms)
+{
+	startup_config_write(BK_REGS_SELECT_DEV_OP_STAT, device_op_status);
+	if (delay_ms)
+	{
+		vTaskDelay(pdMS_TO_TICKS(delay_ms));
+	}
+	m1_reboot_cleanup();
+	NVIC_SystemReset();
 }
 
 

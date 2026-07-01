@@ -20,6 +20,7 @@
 #include "m1_diag.h"
 #include "m1_log_debug.h"
 #include "m1_display.h"
+#include "m1_fw_update_bl.h"
 
 #define M1_DIAG_TAG  "M1DIAG"
 
@@ -69,6 +70,19 @@ static void diag_rsr_str(uint32_t rsr, char *out, int n)
     if (used == 0) snprintf(out, n, "POR");
 }
 
+static const char *diag_boot_recovery_name(uint32_t code)
+{
+    switch ((S_M1_BOOT_DIAG_CODE_t)code) {
+        case BOOT_DIAG_EMPTY_BANK_SWAP:      return "EMPTY_BANK_SWAP";
+        case BOOT_DIAG_EMPTY_BANK_DFU:       return "EMPTY_BANK_DFU";
+        case BOOT_DIAG_CRC_SWAP:             return "CRC_SWAP";
+        case BOOT_DIAG_CRC_DFU:              return "CRC_DFU";
+        case BOOT_DIAG_OB_RESET_FALLBACK:    return "OB_RESET_FALLBACK";
+        case BOOT_DIAG_NONE:
+        default:                             return "NONE";
+    }
+}
+
 /*============================================================================*/
 /* Read RCC->RSR, snapshot the previous boot's breadcrumb into prev_* (which
  * survive future re-inits), log a boot report, re-init the live fields. */
@@ -76,6 +90,7 @@ static void diag_rsr_str(uint32_t rsr, char *out, int n)
 void m1_diag_boot_report(void)
 {
     uint32_t rsr = RCC->RSR;
+    uint32_t boot_diag = TAMP->BKP2R;
 
     uint8_t  snap_valid = (m1_diag.magic == M1_DIAG_MAGIC) ? 1 : 0;
     uint8_t  snap_phase = snap_valid ? m1_diag.last_write_phase : 0xFF;
@@ -87,6 +102,12 @@ void m1_diag_boot_report(void)
     char flags[48];
     diag_rsr_str(rsr, flags, sizeof(flags));
     M1_LOG_I(M1_DIAG_TAG, "BOOT: reset=%s raw=0x%08lX\r\n", flags, (unsigned long)rsr);
+    if ((boot_diag & BOOT_DIAG_MAGIC_MASK) == BOOT_DIAG_MAGIC) {
+        uint32_t code = boot_diag & BOOT_DIAG_CODE_MASK;
+        M1_LOG_I(M1_DIAG_TAG, "BOOTREC: %s (%lu)\r\n",
+                 diag_boot_recovery_name(code), (unsigned long)code);
+        TAMP->BKP2R = 0;
+    }
     if (snap_valid) {
         M1_LOG_I(M1_DIAG_TAG, "LAST: phase=%s(%u) blk=%u writes=%lu pvd=%u\r\n",
                  diag_phase_name(snap_phase), (unsigned)snap_phase, (unsigned)snap_blk,

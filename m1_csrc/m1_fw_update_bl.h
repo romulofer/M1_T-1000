@@ -52,6 +52,21 @@
 /* ROM DFU Bootloader entry point for STM32H5 */
 #define STM32H5_SYSTEM_MEMORY_ADDR ((uint32_t)0x0BF90000)
 
+#define BOOT_DIAG_MAGIC_MASK      ((uint32_t)0xFFFF0000)
+#define BOOT_DIAG_MAGIC           ((uint32_t)0xB0070000)
+#define BOOT_DIAG_CODE_MASK       ((uint32_t)0x0000FFFF)
+#define BOOT_DIAG_MAKE(code)      (BOOT_DIAG_MAGIC | ((uint32_t)(code) & BOOT_DIAG_CODE_MASK))
+
+typedef enum
+{
+    BOOT_DIAG_NONE = 0,
+    BOOT_DIAG_EMPTY_BANK_SWAP,
+    BOOT_DIAG_EMPTY_BANK_DFU,
+    BOOT_DIAG_CRC_SWAP,
+    BOOT_DIAG_CRC_DFU,
+    BOOT_DIAG_OB_RESET_FALLBACK
+} S_M1_BOOT_DIAG_CODE_t;
+
 typedef struct {
     uint32_t magic;          /* 0x43524332 ("CRC2") or 0xFFFFFFFF (not present) */
     uint32_t fw_image_size;  /* bytes of firmware to CRC (in 32-bit words for HAL) */

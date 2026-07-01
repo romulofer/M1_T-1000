@@ -20,6 +20,7 @@
 #include "m1_watchdog.h"
 #include "m1_fw_update.h"
 #include "m1_fw_update_bl.h"
+#include "m1_power_ctl.h"
 #include "m1_sub_ghz.h"
 
 /*************************** D E F I N E S ************************************/
@@ -63,6 +64,9 @@ static uint16_t bl_flash_if_deinit(void);
 static uint16_t bl_flash_if_erase(uint32_t add);
 static uint32_t bl_get_sector(uint32_t address);
 static uint8_t bl_flash_start(uint32_t image_size);
+static void boot_diag_set(S_M1_BOOT_DIAG_CODE_t code);
+static void bl_bank_swap_reboot_screen(void);
+static void bl_bank_swap_launch_reset(void);
 void fw_gui_progress_update(size_t remainder);
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
 
@@ -651,13 +655,9 @@ bool bl_swap_banks(void)
 
 	m1_wdt_reset();
 
-	/* Launch Option bytes loading — this triggers an OBL system reset
-	 * when the SWAP_BANK bit changes.  We should not return from here. */
-	status = HAL_FLASH_OB_Launch();
-
-	/* If we reach here, the OBL reset did not occur. */
-	M1_LOG_E(M1_LOGDB_TAG, "Bank swap: OB launch returned (%d) — forcing reset\r\n", status);
-	HAL_NVIC_SystemReset();
+	bl_bank_swap_reboot_screen();
+	M1_LOG_I(M1_LOGDB_TAG, "Bank swap: launch OBL reset\r\n");
+	bl_bank_swap_launch_reset();
 
 	/* Never reached */
 	return true;
@@ -911,6 +911,71 @@ void fw_gui_progress_update(size_t remainder)
 } // void fw_gui_progress_update(size_t remainder)
 
 
+/*============================================================================*/
+/**
+  * @brief  Keep a visible handoff screen up while bank swap reset is requested.
+  * @param  None
+  * @retval None
+  */
+/*============================================================================*/
+static void bl_bank_swap_reboot_screen(void)
+{
+	u8g2_FirstPage(&m1_u8g2);
+	do
+	{
+		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_B);
+		u8g2_DrawStr(&m1_u8g2, 4, 18, "Firmware Ready");
+		u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
+		u8g2_DrawStr(&m1_u8g2, 4, 34, "Swapping banks...");
+		u8g2_DrawStr(&m1_u8g2, 4, 46, "Rebooting now");
+		u8g2_DrawStr(&m1_u8g2, 4, 60, "Do not power off");
+	} while (m1_u8g2_nextpage());
+}
+
+
+/*============================================================================*/
+/**
+  * @brief  Request option-byte reload, then force a clean software reset if
+  *         hardware OBL reset does not happen promptly.
+  * @param  None
+  * @retval None
+  */
+/*============================================================================*/
+static void bl_bank_swap_launch_reset(void)
+{
+	uint32_t tickstart;
+	uint32_t spin_count;
+
+	m1_reboot_io_cleanup();
+
+	SET_BIT(FLASH->OPTCR, FLASH_OPTCR_OPTSTART);
+
+	tickstart = HAL_GetTick();
+	spin_count = 0;
+	while ((FLASH->NSSR & FLASH_SR_BSY) != 0U)
+	{
+		m1_wdt_reset();
+		spin_count++;
+		if (((HAL_GetTick() - tickstart) > FLASH_TIMEOUT_VALUE) ||
+		    (spin_count > 50000000U))
+		{
+			break;
+		}
+	}
+
+	M1_LOG_E(M1_LOGDB_TAG, "Bank swap: OBL reset did not fire, forcing reset\r\n");
+	boot_diag_set(BOOT_DIAG_OB_RESET_FALLBACK);
+	m1_reboot_io_cleanup();
+	HAL_NVIC_SystemReset();
+
+	while (1)
+	{
+		;
+	}
+}
+
+
 
 /*============================================================================*/
 /**
@@ -944,6 +1009,20 @@ void bl_jump_to_dfu(void)
 
     /* Should never reach here */
     while (1) {}
+}
+
+
+/*============================================================================*/
+/**
+  * @brief  Leave an early-boot recovery breadcrumb in backup register 2.
+  * @param  code: Recovery event code.
+  * @retval None
+  */
+/*============================================================================*/
+static void boot_diag_set(S_M1_BOOT_DIAG_CODE_t code)
+{
+    PWR->DBPCR |= PWR_DBPCR_DBP;
+    TAMP->BKP2R = BOOT_DIAG_MAKE(code);
 }
 
 
@@ -998,10 +1077,12 @@ void boot_recovery_check(void)
 
         if (TAMP->BKP1R == BOOT_FAIL_SIGNATURE) {
             /* Already tried — both banks are empty. Jump to DFU. */
+            boot_diag_set(BOOT_DIAG_EMPTY_BANK_DFU);
             bl_jump_to_dfu();
         }
 
         TAMP->BKP1R = BOOT_FAIL_SIGNATURE;
+        boot_diag_set(BOOT_DIAG_EMPTY_BANK_SWAP);
 
         /* Toggle SWAP_BANK and reset */
         FLASH->NSKEYR = 0x45670123U;
@@ -1017,6 +1098,7 @@ void boot_recovery_check(void)
         }
         FLASH->OPTCR |= FLASH_OPTCR_OPTSTART;
         while (FLASH->NSSR & FLASH_SR_BSY) {}
+        boot_diag_set(BOOT_DIAG_OB_RESET_FALLBACK);
         NVIC_SystemReset();
         /* Never returns */
     }
@@ -1086,12 +1168,14 @@ void boot_recovery_check(void)
     /* Check if we already tried bank swap (prevents infinite swap loop) */
     if (TAMP->BKP1R == BOOT_FAIL_SIGNATURE) {
         /* Both banks failed - last resort: jump to ROM DFU */
+        boot_diag_set(BOOT_DIAG_CRC_DFU);
         bl_jump_to_dfu();
         /* Never returns */
     }
 
     /* Mark that we're attempting a bank swap */
     TAMP->BKP1R = BOOT_FAIL_SIGNATURE;
+    boot_diag_set(BOOT_DIAG_CRC_SWAP);
 
     /* Toggle SWAP_BANK option byte */
     /* Unlock flash */
@@ -1121,5 +1205,6 @@ void boot_recovery_check(void)
     while (FLASH->NSSR & FLASH_SR_BSY) {}
 
     /* If we get here, trigger manual reset */
+    boot_diag_set(BOOT_DIAG_OB_RESET_FALLBACK);
     NVIC_SystemReset();
 }
