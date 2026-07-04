@@ -151,6 +151,31 @@ bool nfc_mfc_key_get(uint16_t sector, char *type_out, uint8_t key_out[6])
     return true;
 }
 
+/* Latest NFC read progress, written by m1_read_mifareclassic() and snapshotted
+ * by the read view. Plain struct guarded only by natural word-sized field
+ * writes — the view reads a slightly-stale snapshot at worst, which is fine
+ * for on-screen feedback. */
+static nfc_read_progress_t g_nfc_read_progress;
+
+void nfc_poller_get_read_progress(nfc_read_progress_t *out)
+{
+    if (!out) return;
+    *out = g_nfc_read_progress;
+}
+
+/* Update the shared progress state and wake the read view. Non-blocking:
+ * callers rate-limit to per-sector granularity, and a dropped frame just means
+ * the view redraws on the next stage — the keypad path is never starved. */
+static void mfc_progress_emit(uint8_t stage, uint16_t sector,
+                              uint16_t total_sectors, uint8_t result)
+{
+    g_nfc_read_progress.stage         = stage;
+    g_nfc_read_progress.sector        = sector;
+    g_nfc_read_progress.total_sectors = total_sectors;
+    g_nfc_read_progress.result        = result;
+    m1_app_try_send_q_message(main_q_hdl, Q_EVENT_NFC_READ_PROGRESS);
+}
+
 /*
  ******************************************************************************
  * LOCAL VARIABLES
@@ -1375,6 +1400,10 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev)
 
     platformLog("[MFC] start dump: sectors=%u blocks=%u\r\n", totalSectors, totalBlocks);
 
+    /* Feedback: a MIFARE Classic card was detected; the dictionary sweep is
+     * about to start. */
+    mfc_progress_emit(NFC_RD_STAGE_CARD_FOUND, 0, totalSectors, NFC_RD_RESULT_NONE);
+
     uint16_t lastSeenBlock  = 0;
     uint16_t successSectors = 0;
 
@@ -1389,6 +1418,7 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev)
         nfc_ctx_set_dump(MFC_BLOCK_SIZE, totalBlocks, 0,
                          g_nfc_dump_buf, g_nfc_valid_bits,
                          0 /*max_seen_unit*/, false /*has_dump*/);
+        mfc_progress_emit(NFC_RD_STAGE_DONE, 0, totalSectors, NFC_RD_RESULT_UID_ONLY);
         return;
     }
 
@@ -1401,6 +1431,11 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev)
 
         bool sectorAuthed = false;
         uint8_t key[MFC_KEY_LEN];
+
+        /* Feedback: rate-limited to once per sector (not per key) so the
+         * dictionary sweep can't flood the UI queue. */
+        mfc_progress_emit(NFC_RD_STAGE_TRYING_KEYS, (uint16_t)(sector + 1),
+                          totalSectors, NFC_RD_RESULT_NONE);
 
         /* Rewind key iterator for each sector */
         mfc_key_iter_rewind(&iter);
@@ -1440,6 +1475,10 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev)
         if (sector < MFC_FOUND_KEYS_MAX)
             g_mfc_found_count++;
 
+        /* Feedback: authenticated — now reading this sector's blocks. */
+        mfc_progress_emit(NFC_RD_STAGE_READING, (uint16_t)(sector + 1),
+                          totalSectors, NFC_RD_RESULT_NONE);
+
         /* Read all blocks of authenticated sector */
         for (uint16_t bi = 0; bi < blocksInSector; bi++) {
             uint16_t blockNo = firstBlock + bi;
@@ -1461,6 +1500,11 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev)
     nfc_ctx_set_dump(MFC_BLOCK_SIZE, totalBlocks, 0,
                      g_nfc_dump_buf, g_nfc_valid_bits,
                      lastSeenBlock, (lastSeenBlock > 0));
+
+    /* Feedback: classify the outcome (UID-only / partial / full) so the read
+     * view can label the completion screen. sector carries the authed count. */
+    mfc_progress_emit(NFC_RD_STAGE_DONE, successSectors, totalSectors,
+                      (uint8_t)mfc_classify_result(successSectors, totalSectors));
 
     platformLog("[MFC] dump done: successSectors=%u lastBlock=%u\r\n",
                 successSectors, lastSeenBlock);

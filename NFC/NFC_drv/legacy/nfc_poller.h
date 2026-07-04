@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "rfal_nfc.h"
+#include "nfc_read_progress.h"
 
 /**
  * @brief ReadIni - Initialize NFC poller (READ-ONLY mode)
@@ -187,5 +188,18 @@ uint16_t nfc_mfc_keys_found(void);
  * @retval true if a key was recovered for this sector
  */
 bool nfc_mfc_key_get(uint16_t sector, char *type_out, uint8_t key_out[6]);
+
+/*============================================================================*/
+/* NFC read-lifecycle progress (poller -> read view feedback)                 */
+/*============================================================================*/
+
+/**
+ * @brief Snapshot the latest NFC read progress into @p out.
+ *
+ * Updated by the MIFARE Classic read path; the read view reads it after a
+ * Q_EVENT_NFC_READ_PROGRESS (intermediate stages) or Q_EVENT_NFC_READ_COMPLETE
+ * (to pick the result label).
+ */
+void nfc_poller_get_read_progress(nfc_read_progress_t *out);
 
 #endif /* NFC_POLLER_H_ */

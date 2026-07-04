@@ -2,5 +2,6 @@
 test_flipper_ir
 validate_ir
 test_mfc_dict
+test_nfc_read_progress
 *.o
 *.ir

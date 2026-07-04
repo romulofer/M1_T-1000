@@ -87,6 +87,9 @@ static const char *m1_nfc_tool_options[] = {
 typedef enum
 {
 	NFC_READ_DISPLAY_PARAM_READING_READY = 0,
+	NFC_READ_DISPLAY_PARAM_READING_CARD_FOUND,   /* intermediate: card detected      */
+	NFC_READ_DISPLAY_PARAM_READING_TRYING_KEYS,  /* intermediate: dict sweep n/m     */
+	NFC_READ_DISPLAY_PARAM_READING_READING,      /* intermediate: reading sector blks*/
 	NFC_READ_DISPLAY_PARAM_READING_COMPLETE,
 	NFC_READ_DISPLAY_PARAM_READING_EOL
 } S_M1_nfc_read_display_mode_t;
@@ -518,7 +521,7 @@ static void nfc_read_gui_update(uint8_t param)
     /* Graphic work starts here */
     u8g2_FirstPage(&m1_u8g2); // This call required for page drawing in mode 1
 
-	if( param==NFC_READ_DISPLAY_PARAM_READING_READY )	// reading
+	if( param!=NFC_READ_DISPLAY_PARAM_READING_COMPLETE )	// reading / intermediate stages
     {
 		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
 		m1_draw_header_bar(&m1_u8g2, "NFC Read",
@@ -596,6 +599,27 @@ static int nfc_read_gui_message(void)
 			// so it doesn't need to wait when reading the event from the queue
 			ret_val = nfc_read_kp_handler();
 		} 
+		else if ( q_item.q_evt_type==Q_EVENT_NFC_READ_PROGRESS )
+		{
+			/* Intermediate lifecycle feedback from the poller. Snapshot the
+			 * shared progress state and redraw the matching stage screen. The
+			 * DONE stage is handled by Q_EVENT_NFC_READ_COMPLETE below. */
+			nfc_read_progress_t pr;
+			nfc_poller_get_read_progress(&pr);
+			uint8_t param = NFC_READ_DISPLAY_PARAM_READING_READY;
+			switch (pr.stage)
+			{
+				case NFC_RD_STAGE_CARD_FOUND:
+					param = NFC_READ_DISPLAY_PARAM_READING_CARD_FOUND; break;
+				case NFC_RD_STAGE_TRYING_KEYS:
+					param = NFC_READ_DISPLAY_PARAM_READING_TRYING_KEYS; break;
+				case NFC_RD_STAGE_READING:
+					param = NFC_READ_DISPLAY_PARAM_READING_READING; break;
+				default:
+					param = NFC_READ_DISPLAY_PARAM_READING_READY; break;
+			}
+			m1_uiView_display_update(param);
+		}
 		else if ( q_item.q_evt_type==Q_EVENT_NFC_READ_COMPLETE )
 		{
 			// Do other things for this task
@@ -603,7 +627,7 @@ static int nfc_read_gui_message(void)
 			m1_buzzer_notification();
 			m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
 			m1_uiView_display_update(NFC_READ_DISPLAY_PARAM_READING_COMPLETE);
-		} 
+		}
 	} // if (ret==pdTRUE)
 
 	return ret_val;

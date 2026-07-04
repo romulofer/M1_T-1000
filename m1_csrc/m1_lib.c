@@ -358,6 +358,17 @@ void m1_app_send_q_message(QueueHandle_t Handle, S_M1_Q_Event_Type_t cmd)
     xQueueSend(Handle, &q_item, portMAX_DELAY);
 }
 
+void m1_app_try_send_q_message(QueueHandle_t Handle, S_M1_Q_Event_Type_t cmd)
+{
+	S_M1_Main_Q_t q_item;
+
+	q_item.q_evt_type = cmd;
+    /* Zero timeout: if the queue is full the event is dropped rather than
+     * blocking the caller. Safe for progress signals where the newest state
+     * is what matters and a missed intermediate frame is harmless. */
+    xQueueSend(Handle, &q_item, 0);
+}
+
 
 /*============================================================================*/
 /**

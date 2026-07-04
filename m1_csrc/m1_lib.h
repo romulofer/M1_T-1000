@@ -30,6 +30,10 @@ int m1_strtob_with_base(const char *str, uint8_t *out, int max_len, int base);
 void m1_byte_to_hextext(const uint8_t *src, int len, char *out);
 void m1_vkb_set_initial_text(int len, char *out);
 void m1_app_send_q_message(QueueHandle_t Handle, S_M1_Q_Event_Type_t cmd);
+/* Non-blocking variant: posts with zero timeout (drop-on-full) so a producer
+ * on a hot path — e.g. the NFC poller emitting read progress — never blocks
+ * when the consumer queue is momentarily full. */
+void m1_app_try_send_q_message(QueueHandle_t Handle, S_M1_Q_Event_Type_t cmd);
 void m1_hard_delay(uint32_t x);
 
 #endif /* M1_LIB_H_ */
