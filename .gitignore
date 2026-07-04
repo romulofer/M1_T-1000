@@ -56,7 +56,9 @@ appsplan.md
 
 # Claude / AI assistant
 .claude/
+tasks/
 CLAUDE.md
+SPEC.md
 
 # Local project directories (not part of firmware)
 qMonstatek/
