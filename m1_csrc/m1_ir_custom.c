@@ -596,9 +596,11 @@ static void ir_custom_draw_message(const char *l1, const char *l2)
 
 /*============================================================================*/
 /**
- * @brief  Learn one IRMP-decodable button and append it to the open remote.
- *         Reuses the IR receiver (infrared_decode_sys_init) and IRMP decode
- *         path, with LED/buzzer feedback like the stock Learn flow.
+ * @brief  Learn one button and append it to the open remote. An IRMP decode is
+ *         preferred (parsed signal); when IRMP cannot decode the frame, the raw
+ *         edge stream is captured instead (raw fallback) so undecodable remotes
+ *         can still be stored. Reuses the IR receiver + IRMP path with LED/buzzer
+ *         feedback like the stock Learn flow.
  * @param  path  full path to the remote's .ir file
  */
 static void ir_custom_learn_button(const char *path)
@@ -607,14 +609,15 @@ static void ir_custom_learn_button(const char *path)
 	S_M1_Main_Q_t       q_item;
 	BaseType_t          ret;
 	IRMP_DATA           data;
-	bool                captured = false;
+	ir_cap_state_t      cap = IR_CAP_NONE;
 
 	infrared_decode_sys_init();
 	irmp_init();
 	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
 
 	memset(&data, 0, sizeof(data));
-	ir_custom_draw_learn(false, NULL);
+	flipper_ir_raw_begin(&s_learn_raw, "Raw");
+	ir_custom_draw_learn(IR_CAP_NONE, NULL, 0);
 
 	while (1)
 	{
@@ -624,13 +627,39 @@ static void ir_custom_learn_button(const char *path)
 
 		if (q_item.q_evt_type == Q_EVENT_IRRED_RX)
 		{
-			irmp_data_sampler(q_item.q_data.ir_rx_data.ir_edge_te,
-			                  q_item.q_data.ir_rx_data.ir_edge_dir);
-			if (irmp_get_data(&data))
+			uint32_t te  = q_item.q_data.ir_rx_data.ir_edge_te;
+			uint8_t  dir = q_item.q_data.ir_rx_data.ir_edge_dir;
+
+			irmp_data_sampler(te, dir);
+
+			/* Prefer an IRMP decode; keep the first one and stop capturing. */
+			if (cap == IR_CAP_NONE && irmp_get_data(&data))
 			{
 				m1_buzzer_notification();
-				captured = true;
-				ir_custom_draw_learn(true, &data);
+				cap = IR_CAP_PARSED;
+				ir_custom_draw_learn(IR_CAP_PARSED, &data, 0);
+			}
+			else if (cap == IR_CAP_NONE)
+			{
+				/* No decode yet: accumulate the raw edge stream. The RX timer
+				 * runs at 1 MHz so ir_edge_te is already microseconds; the
+				 * active-low receiver makes a rising edge end a mark and a
+				 * falling edge end a space. te > IRMP_TIMEOUT_TIME is the
+				 * inter-frame timeout marker => end of frame. */
+				bool is_mark   = (dir == EDGE_DET_RISING);
+				bool frame_end = (te > IRMP_TIMEOUT_TIME);
+				flipper_ir_raw_feed_result_t r =
+					flipper_ir_raw_feed(&s_learn_raw, te, is_mark, frame_end,
+					                    IR_RAW_MIN_SAMPLES, IR_RAW_FREQ_DEFAULT,
+					                    IR_RAW_DUTY_DEFAULT);
+
+				if (r == FLIPPER_IR_RAW_FRAME_COMPLETE)
+				{
+					m1_buzzer_notification();
+					cap = IR_CAP_RAW;
+					ir_custom_draw_learn(IR_CAP_RAW, NULL, s_learn_raw.raw.sample_count);
+				}
+				/* FRAME_NOISE already reset the accumulator; keep waiting. */
 			}
 		}
 		else if (q_item.q_evt_type == Q_EVENT_KEYPAD)
@@ -648,7 +677,7 @@ static void ir_custom_learn_button(const char *path)
 				return;
 			}
 			else if ((btn.event[BUTTON_OK_KP_ID]    == BUTTON_EVENT_CLICK ||
-			          btn.event[BUTTON_RIGHT_KP_ID]  == BUTTON_EVENT_CLICK) && captured)
+			          btn.event[BUTTON_RIGHT_KP_ID]  == BUTTON_EVENT_CLICK) && cap != IR_CAP_NONE)
 			{
 				bool ok;
 
@@ -656,7 +685,11 @@ static void ir_custom_learn_button(const char *path)
 				m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
 				infrared_decode_sys_deinit();
 
-				ok = ir_custom_append_parsed(path, &data);
+				if (cap == IR_CAP_PARSED)
+					ok = ir_custom_append_parsed(path, &data);
+				else
+					ok = ir_custom_append_raw(path, &s_learn_raw);
+
 				ir_custom_draw_message(ok ? "Button added" : "Add cancelled/failed", NULL);
 				ir_custom_wait_key();
 				xQueueReset(main_q_hdl);
