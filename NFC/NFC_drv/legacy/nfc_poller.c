@@ -1380,7 +1380,15 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev)
 
     mfc_key_iter_t iter;
     if (!mfc_key_iter_open(&iter)) {
-        platformLog("[MFC] no key dict, skip MFC dump\r\n");
+        /* No dictionary on the SD card: fall back to an official-parity
+         * identity floor. UID/SAK/ATQA are still captured by the caller
+         * (Emu_SetNfcA + nfc_a_fill_uid_and_family); here we bind a defined,
+         * empty dump (has_dump=false) so the read still saves a valid .nfc
+         * instead of leaving stale dump context. Buffers were zeroed above. */
+        platformLog("[MFC] no key dict, UID-only floor\r\n");
+        nfc_ctx_set_dump(MFC_BLOCK_SIZE, totalBlocks, 0,
+                         g_nfc_dump_buf, g_nfc_valid_bits,
+                         0 /*max_seen_unit*/, false /*has_dump*/);
         return;
     }
 
