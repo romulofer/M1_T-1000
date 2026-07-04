@@ -68,6 +68,14 @@ typedef bool (*flipper_ir_rewrite_cb_t)(uint16_t index, flipper_ir_signal_t *sig
  * flight. Used for button rename/delete/edit. Returns true on success. */
 bool flipper_ir_rewrite(const char *path, flipper_ir_rewrite_cb_t cb, void *user);
 
+/* Raw signal accumulator (for the raw learn fallback when IRMP can't decode).
+ * begin() resets sig to an empty named raw signal; add_edge() appends one
+ * mark (stored +us) or space (stored -us), returning false when the sample
+ * buffer is full; finish() records frequency/duty_cycle and marks valid. */
+void flipper_ir_raw_begin(flipper_ir_signal_t *sig, const char *name);
+bool flipper_ir_raw_add_edge(flipper_ir_signal_t *sig, uint32_t duration_us, bool is_mark);
+bool flipper_ir_raw_finish(flipper_ir_signal_t *sig, uint32_t frequency, float duty_cycle);
+
 /* Map Flipper protocol name string to IRMP protocol ID */
 uint8_t flipper_ir_proto_to_irmp(const char *name);
 
