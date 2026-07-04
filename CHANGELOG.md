@@ -25,6 +25,29 @@ All notable changes to the M1 T-1000 firmware will be documented in this file.
 - **Host `.ir` tooling:** `tools/host_test/validate_ir` plus a `validate.sh`
   regression sweep (round-trip unit suite + validation of every shipped `.ir`).
 - The boot screen now shows an `rfx` build tag beside the version number.
+- **NFC → Read: reliable MIFARE Classic identity capture + on-screen read
+  feedback.**
+  - MIFARE Classic reads now always save a valid Flipper `.nfc` carrying the
+    card's UID/SAK/ATQA — an official-parity identity floor — even when no
+    sector keys authenticate, instead of appearing to "not read" the card.
+  - Ships the full Flipper well-known key dictionary at
+    `NFC/system/mf_classic_dict.nfc` (2475 keys) for the dictionary-auth dump
+    path to try.
+  - The read view now shows the operation lifecycle — Card found → Trying keys
+    (sector N/M) → Reading → and a result line: **"Read (UID only)"** when only
+    identity was captured, or **"Sectors N/M"** when sectors were recovered.
+  - Host test tooling: SAK→layout mapping, read-result classifier, key-dict
+    parser, and a Crypto-1 known-answer cipher vector under
+    `tools/host_test/` (`run_mfc_sak_layout_test.sh`, `run_nfc_progress_test.sh`,
+    `run_mfc_dict_test.sh`, `run_mfc_crypto1_test.sh`).
+
+### Known Issues
+- **NFC → Read: the MIFARE Classic dictionary dump does not yet recover sectors
+  on-card.** The Crypto-1 cipher math is verified correct (host known-answer
+  vector), but authenticated MIFARE frames require *encrypted parity* and the RF
+  layer currently transmits standard ISO14443A parity, which the card rejects.
+  Until that framing fix lands, a MIFARE Classic read falls back to the UID-only
+  identity floor. On-device mfkey32 key recovery and Picopass are unaffected.
 
 ## [0.2.1] - 2026-06-29
 
