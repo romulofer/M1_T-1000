@@ -102,6 +102,11 @@ flipper_ir_raw_feed_result_t flipper_ir_raw_feed(flipper_ir_signal_t *sig,
  * (still returns true). Built on flipper_ir_rewrite (stack-only, atomic). */
 bool flipper_ir_rename_signal(const char *path, uint16_t target_index, const char *new_name);
 
+/* Delete the signal at target_index from a .ir file, preserving every other
+ * signal and the file order. Deleting the last signal leaves a valid
+ * header-only file. Out-of-range index is a no-op (still returns true). */
+bool flipper_ir_delete_signal(const char *path, uint16_t target_index);
+
 /* Map Flipper protocol name string to IRMP protocol ID */
 uint8_t flipper_ir_proto_to_irmp(const char *name);
 

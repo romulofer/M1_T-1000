@@ -91,8 +91,8 @@ static const char *const s_remote_menu_items[] = { "Play Buttons", "Learn Button
 #define IR_CUSTOM_REMOTE_MENU_COUNT \
 	((uint8_t)(sizeof(s_remote_menu_items) / sizeof(s_remote_menu_items[0])))
 
-/* Per-button action menu (Delete is appended in a later slice). */
-static const char *const s_button_action_items[] = { "Rename" };
+/* Per-button action menu. */
+static const char *const s_button_action_items[] = { "Rename", "Delete" };
 #define IR_CUSTOM_BTN_ACTION_COUNT \
 	((uint8_t)(sizeof(s_button_action_items) / sizeof(s_button_action_items[0])))
 
@@ -117,6 +117,7 @@ static void        ir_custom_scan_buttons(const char *path);
 static void        ir_custom_draw_button_list(const char *name, uint16_t selection, uint16_t total);
 static void        ir_custom_draw_action_menu(const char *name, uint8_t selection);
 static bool        ir_custom_rename_button(const char *path, uint16_t index);
+static bool        ir_custom_confirm(const char *l1, const char *l2);
 static void        ir_custom_button_action(const char *path, const char *rname, uint16_t index);
 static void        ir_custom_edit_buttons(const char *path, const char *name);
 static void        ir_custom_open_remote(const char *path, const char *name);
@@ -871,8 +872,55 @@ static bool ir_custom_rename_button(const char *path, uint16_t index)
 
 /*============================================================================*/
 /**
- * @brief  Per-button action menu loop (currently just Rename). Returns to the
- *         button list on BACK/LEFT.
+ * @brief  Draw a two-line confirmation prompt and block until the user answers.
+ *         OK/RIGHT confirms, BACK/LEFT cancels.
+ * @return true if confirmed, false if cancelled
+ */
+static bool ir_custom_confirm(const char *l1, const char *l2)
+{
+	S_M1_Buttons_Status btn;
+	S_M1_Main_Q_t       q_item;
+	BaseType_t          ret;
+
+	m1_u8g2_firstpage();
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	if (l1 != NULL)
+		u8g2_DrawStr(&m1_u8g2, 4, 24, l1);
+	if (l2 != NULL)
+		u8g2_DrawStr(&m1_u8g2, 4, 36, l2);
+	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Cancel", "Delete", arrowright_8x8);
+	m1_u8g2_nextpage();
+
+	while (1)
+	{
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE || q_item.q_evt_type != Q_EVENT_KEYPAD)
+			continue;
+
+		ret = xQueueReceive(button_events_q_hdl, &btn, 0);
+		if (ret != pdTRUE)
+			continue;
+
+		if (btn.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK ||
+		    btn.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			xQueueReset(main_q_hdl);
+			return false;
+		}
+		if (btn.event[BUTTON_OK_KP_ID]    == BUTTON_EVENT_CLICK ||
+		    btn.event[BUTTON_RIGHT_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			xQueueReset(main_q_hdl);
+			return true;
+		}
+	}
+}
+
+/*============================================================================*/
+/**
+ * @brief  Per-button action menu loop (Rename / Delete). Returns to the button
+ *         list on BACK/LEFT or after an action completes.
  * @param  path   remote file path
  * @param  rname  button name (menu title)
  * @param  index  button index within the file
@@ -924,6 +972,16 @@ static void ir_custom_button_action(const char *path, const char *rname, uint16_
 					ir_custom_draw_message("Renamed", NULL);
 					ir_custom_wait_key();
 					return;   /* names changed; caller re-scans */
+				}
+			}
+			else                  /* Delete */
+			{
+				if (ir_custom_confirm("Delete button?", rname))
+				{
+					bool ok = flipper_ir_delete_signal(path, index);
+					ir_custom_draw_message(ok ? "Deleted" : "Delete failed", NULL);
+					ir_custom_wait_key();
+					return;   /* list changed; caller re-scans */
 				}
 			}
 			xQueueReset(main_q_hdl);

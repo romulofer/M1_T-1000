@@ -670,6 +670,31 @@ bool flipper_ir_rename_signal(const char *path, uint16_t target_index, const cha
 }
 
 /*============================================================================*/
+/* Callback for flipper_ir_delete_signal(): drop the one matching index. The
+ * target index is passed by pointer through the rewrite user parameter. */
+static bool flipper_ir_delete_cb(uint16_t index, flipper_ir_signal_t *sig, void *user)
+{
+	uint16_t target = *(const uint16_t *)user;
+
+	(void)sig;
+	return index != target;   /* keep everything except the target */
+}
+
+/*============================================================================*/
+/**
+ * @brief  Delete the signal at target_index from a .ir file, preserving all
+ *         other signals. Deleting the last one leaves a valid header-only file.
+ *         Out-of-range index leaves the file unchanged (returns true).
+ * @param  path          .ir file path
+ * @param  target_index  0-based index of the signal to delete
+ * @return true on success (or harmless no-op)
+ */
+bool flipper_ir_delete_signal(const char *path, uint16_t target_index)
+{
+	return flipper_ir_rewrite(path, flipper_ir_delete_cb, &target_index);
+}
+
+/*============================================================================*/
 /**
  * @brief  Count the number of IR signals in a .ir file without loading all data
  * @param  path  file path
