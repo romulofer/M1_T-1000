@@ -4,5 +4,6 @@ validate_ir
 test_mfc_dict
 test_nfc_read_progress
 test_mfc_crypto1
+test_mfc_sak_layout
 *.o
 *.ir

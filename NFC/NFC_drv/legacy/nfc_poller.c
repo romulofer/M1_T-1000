@@ -97,27 +97,10 @@ static bool mfc_key_iter_next(mfc_key_iter_t *it, uint8_t key_out[MFC_KEY_LEN]);
 static void mfc_key_iter_rewind(mfc_key_iter_t *it);
 static void mfc_key_iter_close(mfc_key_iter_t *it);
 
-static void mfc_get_layout_from_sak(uint8_t sak, uint16_t *outSectors, uint16_t *outBlocks);
 static uint16_t mfc_sector_to_first_block(uint16_t sector);
 
-/* Returns true if SAK indicates any MIFARE Classic variant */
-static bool mfc_is_classic_sak(uint8_t sak)
-{
-    switch (sak) {
-    case 0x01: /* Classic 1K (TNP3xxx) */
-    case 0x08: /* Classic 1K */
-    case 0x09: /* MIFARE Mini */
-    case 0x10: /* Plus 2K SL2 */
-    case 0x11: /* Plus 4K SL2 */
-    case 0x18: /* Classic 4K */
-    case 0x19: /* Classic 2K */
-    case 0x28: /* Classic EV1 1K */
-    case 0x38: /* Classic EV1 4K */
-        return true;
-    default:
-        return false;
-    }
-}
+/* mfc_is_classic_sak() and mfc_layout_from_sak() live in nfc_read_progress.h
+ * (shared, dependency-free, host-tested) — included via nfc_poller.h. */
 
 /* Forward declarations for NFC-V / ST25TB reading */
 static void m1_nfcv_read(const rfalNfcDevice *dev);
@@ -1339,38 +1322,6 @@ static void mfc_key_iter_close(mfc_key_iter_t *it)
 /* MIFARE Classic read using software Crypto-1 + streaming key dictionary     */
 /*============================================================================*/
 
-static void mfc_get_layout_from_sak(uint8_t sak, uint16_t *outSectors, uint16_t *outBlocks)
-{
-    switch (sak) {
-    case 0x09: /* Mini */
-        *outSectors = 5;
-        *outBlocks  = 20;
-        break;
-    case 0x01: /* Classic 1K TNP3xxx */
-    case 0x08: /* Classic 1K */
-    case 0x28: /* Classic EV1 1K */
-        *outSectors = 16;
-        *outBlocks  = 64;
-        break;
-    case 0x10: /* Plus 2K SL2 */
-    case 0x19: /* Classic 2K */
-        *outSectors = 32;
-        *outBlocks  = 128;
-        break;
-    case 0x11: /* Plus 4K SL2 */
-    case 0x18: /* Classic 4K */
-    case 0x38: /* Classic EV1 4K */
-        *outSectors = 40;
-        *outBlocks  = 256;
-        break;
-    default:
-        platformLog("[MFC] unknown SAK 0x%02X, fallback to 1K layout\r\n", sak);
-        *outSectors = 16;
-        *outBlocks  = 64;
-        break;
-    }
-}
-
 static uint16_t mfc_sector_to_first_block(uint16_t sector)
 {
     if (sector < 32)
@@ -1386,7 +1337,10 @@ static void m1_read_mifareclassic(const rfalNfcDevice *dev)
     uint16_t totalBlocks  = 0;
     uint16_t maxBlocks    = NFC_DUMP_MAX_UNITS;
 
-    mfc_get_layout_from_sak(nfca->selRes.sak, &totalSectors, &totalBlocks);
+    if (!mfc_layout_from_sak(nfca->selRes.sak, &totalSectors, &totalBlocks)) {
+        platformLog("[MFC] unknown SAK 0x%02X, fallback to 1K layout\r\n",
+                    nfca->selRes.sak);
+    }
     if (totalBlocks > maxBlocks) totalBlocks = maxBlocks;
 
     /* UID: first 4 bytes for Crypto-1 (even for 7-byte UID cards) */

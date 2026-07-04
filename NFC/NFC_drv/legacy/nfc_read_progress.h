@@ -14,6 +14,7 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdio.h>   /* snprintf for the completion-status builder */
 
 typedef enum {
@@ -77,6 +78,58 @@ nfc_read_completion_status(uint8_t result, uint16_t authed_sectors,
             break;
     }
     return out;
+}
+
+/*
+ * True if a SAK byte indicates any MIFARE Classic (or Plus SL2) variant, i.e.
+ * a card the dictionary-auth dump path should attempt. Pure; shared by the
+ * poller's card-type gate and the host test.
+ */
+static inline bool mfc_is_classic_sak(uint8_t sak)
+{
+    switch (sak) {
+    case 0x01: /* Classic 1K (TNP3xxx) */
+    case 0x08: /* Classic 1K */
+    case 0x09: /* MIFARE Mini */
+    case 0x10: /* Plus 2K SL2 */
+    case 0x11: /* Plus 4K SL2 */
+    case 0x18: /* Classic 4K */
+    case 0x19: /* Classic 2K */
+    case 0x28: /* Classic EV1 1K */
+    case 0x38: /* Classic EV1 4K */
+        return true;
+    default:
+        return false;
+    }
+}
+
+/*
+ * Map a MIFARE Classic SAK to its (sector, block) layout. Returns true when the
+ * SAK matches a known variant; false means the outputs were set to the 1K
+ * fallback (16 sectors / 64 blocks) — the caller logs the unknown SAK, keeping
+ * this header dependency-free. Layouts: Mini 5/20, 1K 16/64, 2K 32/128,
+ * 4K 40/256 (4K's top 8 sectors use 16 blocks each, hence 256 not 160).
+ */
+static inline bool mfc_layout_from_sak(uint8_t sak, uint16_t *outSectors,
+                                       uint16_t *outBlocks)
+{
+    switch (sak) {
+    case 0x09: /* Mini */
+        *outSectors = 5;  *outBlocks = 20;  return true;
+    case 0x01: /* Classic 1K TNP3xxx */
+    case 0x08: /* Classic 1K */
+    case 0x28: /* Classic EV1 1K */
+        *outSectors = 16; *outBlocks = 64;  return true;
+    case 0x10: /* Plus 2K SL2 */
+    case 0x19: /* Classic 2K */
+        *outSectors = 32; *outBlocks = 128; return true;
+    case 0x11: /* Plus 4K SL2 */
+    case 0x18: /* Classic 4K */
+    case 0x38: /* Classic EV1 4K */
+        *outSectors = 40; *outBlocks = 256; return true;
+    default:   /* unknown -> 1K fallback; caller logs the SAK */
+        *outSectors = 16; *outBlocks = 64;  return false;
+    }
 }
 
 #endif /* NFC_READ_PROGRESS_H_ */
