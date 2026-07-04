@@ -1,3 +1,5 @@
+Note: This is just a hobby coding repo. An attempt to vibe code some things I'd like to see in this cool device
+
 <!-- See COPYING.txt for license details. -->
 
 # M1 T-1000 Firmware
@@ -9,10 +11,12 @@
 ## Features
 
 ### Flipper Zero Compatibility
+
 - Import and use Flipper Zero `.sub`, `.rfid`, `.nfc`, and `.ir` files directly
 - Drop Flipper files onto the SD card and use them on the M1
 
 ### Sub-GHz Enhancements
+
 - **30+ protocol decoders** — Princeton, CAME, Nice Flo, Keeloq, Security+ 2.0, Linear, Holtek, Hormann, Marantec, Somfy, and many more
 - **Spectrum Analyzer** — visual RF spectrum display with a persistent peak hold (max hold) trace
 - **RSSI Meter** — real-time signal strength with a 128-sample rolling history timeline graph
@@ -22,6 +26,7 @@
 - **Extended band support** — 150, 200, 250 MHz bands added
 
 ### NFC Enhancements
+
 - **Tag Info** — manufacturer lookup, SAK decode, technology identification
 - **T2T Page Dump** — read and display Type 2 Tag memory pages
 - **Clone & Emulate** — copy and replay NFC tags
@@ -36,6 +41,7 @@
 - **Recovered-Key Report** — view recovered keys (A/B) on screen after dictionary scans and automatically save to `NFC/<UID>_keys.txt`
 
 ### RFID Enhancements
+
 - **20+ protocol decoders** — HID Generic, Indala, AWID, Pyramid, Paradox, IOProx, FDX-A/B, Viking, Electra, Gallagher, Jablotron, PAC/Stanley, and more
 - **Clone Card** — write to T5577 tags
 - **Erase Tag** — reset T5577 to factory
@@ -44,6 +50,7 @@
 - **Manchester decoder** with carrier auto-detection (ASK/PSK)
 
 ### Infrared
+
 - **Universal Remote Database** — pre-built remotes for Samsung, LG, Sony, Vizio, Bose, Denon, and more (see [`ir_database/`](ir_database/))
 - **Universal Power-Off (TV-B-Gone)** — blast known TV power codes to switch off any nearby television; a **Power Off A/V** action does the same for soundbars, receivers, and projectors
 - **Learn & Save** — record IR signals and save to SD card
@@ -51,17 +58,20 @@
 - **Universal Power-Off (TV-B-Gone)** — blast TV power codes to turn off nearby televisions with progress display and abort support
 
 ### BadUSB
+
 - **DuckyScript interpreter** — run keystroke injection scripts from SD card
 - Supports `STRING`, `DELAY`, `GUI`, `CTRL`, `ALT`, `SHIFT`, key combos, and `REPEAT`
 - Place `.txt` scripts in `BadUSB/` on the SD card
 
 ### Bad-BT (Bluetooth)
+
 - **Wireless DuckyScript** — same scripting as BadUSB but over Bluetooth HID
 - Pairs with target device wirelessly, no cable needed
 
 > **Note:** Bad-BT is under active development and may not work reliably on all target devices. Bluetooth pairing and keystroke delivery depend on the target's BLE HID support.
 
 ### External Apps
+
 - **ELF app loader** — load and run third-party apps from SD card
 - Browse and launch `.m1app` files from the Apps menu
 - **File Tools** — manage SD files, mount/unmount the card, and view in-app
@@ -83,9 +93,11 @@
 - Download ready-to-use apps and the App SDK at **[m1-sdk](https://github.com/bedge117/m1-sdk)**
 
 ### Games
+
 - Snake, Tetris, T-Rex Runner, Pong, Dice — built-in games accessible from the menu
 
 ### WiFi
+
 - **Scan** — discover nearby 2.4 GHz access points
 - **2.4G Survey** — summarize nearby AP count, strongest signal, and busiest channel
 - **Connect** — join 2.4 GHz networks with password entry
@@ -114,25 +126,30 @@
   flashing; standard md5sum-style files and filename/extension casing are accepted
 
 ### GPIO Enhancements
+
 - **Pin Map** — graphical dual-column pin header layout displaying real-time logic states (HIGH/LOW) with on-the-fly pin mode configuration (Pull-Up, Pull-Down, Floating)
 - **USB-UART Bridge** — transparent VCP-to-UART serial forwarding between USB CDC and USART1 (Pins 12/TX and 13/RX) at host-selected baud rates with automatic 3.3V target power on Pin 9 and real-time TX/RX traffic counters
 
 ### NFC/RFID Field Detector
+
 - Detect external 13.56 MHz NFC reader fields and ~125 kHz RFID reader fields
 - Useful for identifying hidden readers
 
 ### Bluetooth Device Manager
+
 - Scan, save, and manage BLE devices
 - View device info and connection details
 - **BLE Spam** — flood Apple / Google / Microsoft "device nearby" advertisements
   (vendor selectable: All / Apple / Google / Microsoft)
 
 ### Dual Boot
+
 - Two firmware banks with safe boot validation
 - Swap between banks from the menu or via the companion app
 - CRC verification before boot — falls back to working bank on corruption
 
 ### RGB Backlight
+
 - **RGB mod support** (SK6805) — drives an add-on RGB LED backlight behind the screen
 - **Color, animation, and brightness** control — Static, Breathe, Color Cycle, Strobe, and Fade effects
 - **Custom color editor** — dial in an exact R/G/B color, saved to SD
@@ -140,6 +157,7 @@
 - **Stock backlight** control for the standard LP5814 white backlight
 
 ### Other Improvements
+
 - **RPC protocol** for [M1 T-800](https://github.com/dagnazty/M1-T-800) companion app communication
 - **Settings persistence** — LCD brightness, southpaw mode, preferences saved to SD card
 - **Southpaw mode** — swap left/right button functions
@@ -206,6 +224,7 @@ All files use the Flipper Zero `.ir` format — you can also use IR files from t
 ```
 
 `build.sh` will try to auto-discover:
+
 - a complete `arm-none-eabi-gcc` toolchain
 - `cmake`
 - `ninja`
@@ -261,9 +280,11 @@ release for the current commit using the matching firmware version tag.
 ## Flashing
 
 ### Via M1 T-800 (recommended)
+
 Connect via USB and use the Firmware Update page in [M1 T-800](https://github.com/dagnazty/M1-T-800).
 
 ### Via DFU Mode (recovery / first install)
+
 1. Power off the M1 (Settings > Power > Power Off > Right Button)
 2. Hold **Up + OK** for 5 seconds to enter DFU mode (screen stays dark)
 3. Connect via USB-C
@@ -272,6 +293,7 @@ Connect via USB and use the Firmware Update page in [M1 T-800](https://github.co
 To exit DFU mode without flashing, hold **Right + Back** to reboot.
 
 ### Via SWD
+
 Use an ST-Link or J-Link debugger with STM32CubeIDE or OpenOCD.
 
 ## SD Card Layout
@@ -299,12 +321,14 @@ If you're building a companion app or tool that communicates with the M1, the RP
 ## Acknowledgments
 
 This project is a fork of and builds upon the work of:
+
 - [bedge117/M1](https://github.com/bedge117/M1) - The upstream repository from which this firmware was directly forked.
 - [Monstatek/M1](https://github.com/Monstatek/M1) - The original firmware repository from which the M1 platform originated.
 
 We would like to express our gratitude to the original developers and contributors of both projects for their foundational work and contributions to the M1 platform.
 
 We also gratefully incorporate work from:
+
 - [da-pingwing/M1_T-1000_RFID](https://github.com/da-pingwing/M1_T-1000_RFID) ("Monstatek M1 RFID Patch", GPL-3.0) — the T5577 write-timing fix, the LF read TIM-clock HardFault fix, and the `m1_diag` on-device reset-cause / write-phase diagnostics.
 - [noproto/FlipperMfkey](https://github.com/noproto/FlipperMfkey) (GPL-3.0) — the memory-bounded Crapto-1 recovery that the on-device mfkey32 solver is ported from.
 - [Flipper Zero firmware](https://github.com/flipperdevices/flipperzero-firmware) (GPL-3.0) — the LF RFID protocol stack (`lfrfid/`) and NFC parsers.
