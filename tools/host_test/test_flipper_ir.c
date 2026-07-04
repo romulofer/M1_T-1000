@@ -365,6 +365,51 @@ static void test_raw_feed_frame(void)
 	CHECK_EQ_INT(sig.raw.sample_count, FLIPPER_IR_RAW_MAX_SAMPLES, "feed: capped");
 }
 
+/* Task 8: rename the button at a target index, preserving every other signal
+ * (name/type/data/order). Reusable wrapper over flipper_ir_rewrite used by the
+ * custom-remote button editor. */
+static void test_rename_signal(void)
+{
+	flipper_file_t ff;
+	flipper_ir_signal_t sig;
+	flipper_ir_signal_t got[8];
+	uint16_t n;
+
+	printf("test_rename_signal\n");
+	f_unlink(TEST_PATH);
+
+	/* Seed: Power (parsed), Vol_Up (parsed), RawBtn (raw). */
+	CHECK(ff_open_write(&ff, TEST_PATH), "rename seed: open_write");
+	CHECK(flipper_ir_write_header(&ff), "rename seed: header");
+	make_parsed(&sig, "Power", IRMP_NEC_PROTOCOL, 0x0007, 0x0002);
+	CHECK(flipper_ir_write_signal(&ff, &sig), "rename seed: Power");
+	make_parsed(&sig, "Vol_Up", IRMP_SAMSUNG32_PROTOCOL, 0x0707, 0x00E0);
+	CHECK(flipper_ir_write_signal(&ff, &sig), "rename seed: Vol_Up");
+	make_raw(&sig, "RawBtn");
+	CHECK(flipper_ir_write_signal(&ff, &sig), "rename seed: RawBtn");
+	ff_close(&ff);
+
+	/* Rename the middle button; all others must be untouched. */
+	CHECK(flipper_ir_rename_signal(TEST_PATH, 1, "Volume+"), "rename returns true");
+
+	n = read_all(TEST_PATH, got, 8);
+	CHECK_EQ_INT(n, 3, "rename: count unchanged");
+	CHECK_EQ_STR(got[0].name, "Power", "rename: sig0 name intact");
+	CHECK_EQ_STR(got[1].name, "Volume+", "rename: sig1 renamed");
+	CHECK_EQ_INT(got[1].parsed.protocol, IRMP_SAMSUNG32_PROTOCOL, "rename: sig1 proto intact");
+	CHECK_EQ_INT(got[1].parsed.address, 0x0707, "rename: sig1 addr intact");
+	CHECK_EQ_INT(got[1].parsed.command, 0x00E0, "rename: sig1 cmd intact");
+	CHECK_EQ_STR(got[2].name, "RawBtn", "rename: sig2 name intact");
+	CHECK_EQ_INT(got[2].raw.sample_count, K_RAW_COUNT, "rename: sig2 samples intact");
+
+	/* Out-of-range index is a no-op that still succeeds (file unchanged). */
+	CHECK(flipper_ir_rename_signal(TEST_PATH, 9, "Nope"), "rename: OOB still true");
+	n = read_all(TEST_PATH, got, 8);
+	CHECK_EQ_STR(got[1].name, "Volume+", "rename: OOB left file unchanged");
+
+	f_unlink(TEST_PATH);
+}
+
 int main(void)
 {
 	printf("== Flipper .ir host round-trip tests ==\n");
@@ -374,6 +419,7 @@ int main(void)
 	test_create_empty_remote();
 	test_raw_accumulate();
 	test_raw_feed_frame();
+	test_rename_signal();
 
 	printf("== %d checks, %d failures ==\n", g_checks, g_failures);
 	return (g_failures == 0) ? 0 : 1;

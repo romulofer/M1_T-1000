@@ -49,6 +49,7 @@
 
 /* My-Remotes manager list geometry (mirrors m1_ir_universal draw_list_screen). */
 #define IR_CUSTOM_MAX_REMOTES   24
+#define IR_CUSTOM_MAX_BUTTONS   64      /* matches IR_UNIVERSAL_MAX_CMDS */
 #define IR_CUSTOM_DISP_NAME_LEN 32
 #define IR_CUSTOM_LIST_VISIBLE  4
 #define IR_CUSTOM_LIST_HEADER_H 12
@@ -75,13 +76,25 @@ typedef enum {
 static char     s_remote_names[IR_CUSTOM_MAX_REMOTES][IR_CUSTOM_DISP_NAME_LEN];
 static uint16_t s_remote_count;
 
+/* Button-name cache for the edit list (one remote at a time). */
+static char     s_button_names[IR_CUSTOM_MAX_BUTTONS][IR_CUSTOM_DISP_NAME_LEN];
+static uint16_t s_button_count;
+
 /* Raw-learn accumulator kept out of the task stack (one learn at a time). */
 static flipper_ir_signal_t s_learn_raw;
 
-/* Per-remote action menu (grows with edit actions in later slices). */
-static const char *const s_remote_menu_items[] = { "Play Buttons", "Learn Button" };
+/* Scratch signal for reading button names off the task stack (~2 KB). */
+static flipper_ir_signal_t s_scan_sig;
+
+/* Per-remote action menu. */
+static const char *const s_remote_menu_items[] = { "Play Buttons", "Learn Button", "Edit Buttons" };
 #define IR_CUSTOM_REMOTE_MENU_COUNT \
 	((uint8_t)(sizeof(s_remote_menu_items) / sizeof(s_remote_menu_items[0])))
+
+/* Per-button action menu (Delete is appended in a later slice). */
+static const char *const s_button_action_items[] = { "Rename" };
+#define IR_CUSTOM_BTN_ACTION_COUNT \
+	((uint8_t)(sizeof(s_button_action_items) / sizeof(s_button_action_items[0])))
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
 
@@ -100,6 +113,12 @@ static void        ir_custom_draw_remote_menu(const char *name, uint8_t selectio
 static void        ir_custom_draw_learn(ir_cap_state_t state, const IRMP_DATA *data, uint16_t raw_count);
 static void        ir_custom_draw_message(const char *l1, const char *l2);
 static void        ir_custom_learn_button(const char *path);
+static void        ir_custom_scan_buttons(const char *path);
+static void        ir_custom_draw_button_list(const char *name, uint16_t selection, uint16_t total);
+static void        ir_custom_draw_action_menu(const char *name, uint8_t selection);
+static bool        ir_custom_rename_button(const char *path, uint16_t index);
+static void        ir_custom_button_action(const char *path, const char *rname, uint16_t index);
+static void        ir_custom_edit_buttons(const char *path, const char *name);
 static void        ir_custom_open_remote(const char *path, const char *name);
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
@@ -701,8 +720,286 @@ static void ir_custom_learn_button(const char *path)
 
 /*============================================================================*/
 /**
- * @brief  Per-remote screen: choose Play Buttons (shared replay) or Learn
- *         Button (learn + append). Returns to the manager on BACK/LEFT.
+ * @brief  Read the button names of a remote into s_button_names[] (extension
+ *         handled by the file layer). Uses an off-stack scratch signal.
+ * @param  path  full path to the remote's .ir file
+ */
+static void ir_custom_scan_buttons(const char *path)
+{
+	flipper_file_t ff;
+
+	s_button_count = 0;
+
+	if (!flipper_ir_open(&ff, path))
+		return;
+
+	while (s_button_count < IR_CUSTOM_MAX_BUTTONS &&
+	       flipper_ir_read_signal(&ff, &s_scan_sig))
+	{
+		size_t copy = strlen(s_scan_sig.name);
+		if (copy > IR_CUSTOM_DISP_NAME_LEN - 1)
+			copy = IR_CUSTOM_DISP_NAME_LEN - 1;
+		memcpy(s_button_names[s_button_count], s_scan_sig.name, copy);
+		s_button_names[s_button_count][copy] = '\0';
+		s_button_count++;
+	}
+
+	ff_close(&ff);
+}
+
+/*============================================================================*/
+/**
+ * @brief  Draw the scrolling button list for the edit screen (title = remote
+ *         name). Draws "(no buttons)" when the remote is empty.
+ */
+static void ir_custom_draw_button_list(const char *name, uint16_t selection, uint16_t total)
+{
+	uint16_t start_idx;
+	uint16_t visible;
+	uint16_t i;
+	uint8_t  y;
+
+	m1_u8g2_firstpage();
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(&m1_u8g2, 2, 10, (name != NULL) ? name : "Edit");
+	u8g2_DrawHLine(&m1_u8g2, 0, IR_CUSTOM_LIST_HEADER_H, 128);
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+
+	if (total == 0)
+	{
+		u8g2_DrawStr(&m1_u8g2, 4, IR_CUSTOM_LIST_START_Y + 8, "(no buttons)");
+		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "", arrowright_8x8);
+		m1_u8g2_nextpage();
+		return;
+	}
+
+	if (selection < IR_CUSTOM_LIST_VISIBLE)
+		start_idx = 0;
+	else
+		start_idx = selection - IR_CUSTOM_LIST_VISIBLE + 1;
+
+	visible = total - start_idx;
+	if (visible > IR_CUSTOM_LIST_VISIBLE)
+		visible = IR_CUSTOM_LIST_VISIBLE;
+
+	for (i = 0; i < visible; i++)
+	{
+		uint16_t idx = start_idx + i;
+		y = IR_CUSTOM_LIST_START_Y + (i * IR_CUSTOM_LIST_ITEM_H);
+
+		if (idx == selection)
+		{
+			u8g2_DrawBox(&m1_u8g2, 0, y, 128, IR_CUSTOM_LIST_ITEM_H);
+			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
+			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_button_names[idx]);
+			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		}
+		else
+		{
+			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_button_names[idx]);
+		}
+	}
+
+	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Edit", arrowright_8x8);
+	m1_u8g2_nextpage();
+}
+
+/*============================================================================*/
+/**
+ * @brief  Draw the per-button action menu (title = button name).
+ */
+static void ir_custom_draw_action_menu(const char *name, uint8_t selection)
+{
+	uint8_t i;
+
+	m1_u8g2_firstpage();
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(&m1_u8g2, 2, 10, (name != NULL) ? name : "Button");
+	u8g2_DrawHLine(&m1_u8g2, 0, IR_CUSTOM_LIST_HEADER_H, 128);
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	for (i = 0; i < IR_CUSTOM_BTN_ACTION_COUNT; i++)
+	{
+		uint8_t y = (uint8_t)(IR_CUSTOM_LIST_START_Y + (i * IR_CUSTOM_LIST_ITEM_H));
+
+		if (i == selection)
+		{
+			u8g2_DrawBox(&m1_u8g2, 0, y, 128, IR_CUSTOM_LIST_ITEM_H);
+			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
+			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_button_action_items[i]);
+			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		}
+		else
+		{
+			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_button_action_items[i]);
+		}
+	}
+
+	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Select", arrowright_8x8);
+	m1_u8g2_nextpage();
+}
+
+/*============================================================================*/
+/**
+ * @brief  Rename the button at index via the on-screen keyboard (current name
+ *         pre-filled). ESC cancels without touching the file.
+ * @return true if the file was rewritten with the new name
+ */
+static bool ir_custom_rename_button(const char *path, uint16_t index)
+{
+	char    default_name[IR_CUSTOM_NAME_MAX_LEN];
+	char    entered[IR_CUSTOM_NAME_MAX_LEN];
+	char    sane[IR_CUSTOM_NAME_MAX_LEN];
+	uint8_t got;
+
+	strncpy(default_name, s_button_names[index], sizeof(default_name) - 1);
+	default_name[sizeof(default_name) - 1] = '\0';
+	entered[0] = '\0';
+
+	got = m1_vkb_get_filename("Rename:", default_name, entered);
+	if (got == 0)
+		return false;   /* cancelled — file untouched */
+
+	ir_custom_sanitize_name(entered, sane, sizeof(sane));
+	return flipper_ir_rename_signal(path, index, sane);
+}
+
+/*============================================================================*/
+/**
+ * @brief  Per-button action menu loop (currently just Rename). Returns to the
+ *         button list on BACK/LEFT.
+ * @param  path   remote file path
+ * @param  rname  button name (menu title)
+ * @param  index  button index within the file
+ */
+static void ir_custom_button_action(const char *path, const char *rname, uint16_t index)
+{
+	S_M1_Buttons_Status btn;
+	S_M1_Main_Q_t       q_item;
+	BaseType_t          ret;
+	uint8_t             selection = 0;
+
+	ir_custom_draw_action_menu(rname, selection);
+
+	while (1)
+	{
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE || q_item.q_evt_type != Q_EVENT_KEYPAD)
+			continue;
+
+		ret = xQueueReceive(button_events_q_hdl, &btn, 0);
+		if (ret != pdTRUE)
+			continue;
+
+		if (btn.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK ||
+		    btn.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			xQueueReset(main_q_hdl);
+			return;
+		}
+		else if (btn.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			selection = (selection > 0) ? (uint8_t)(selection - 1)
+			                            : (uint8_t)(IR_CUSTOM_BTN_ACTION_COUNT - 1);
+			ir_custom_draw_action_menu(rname, selection);
+		}
+		else if (btn.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			selection = (selection < IR_CUSTOM_BTN_ACTION_COUNT - 1)
+			                ? (uint8_t)(selection + 1) : 0;
+			ir_custom_draw_action_menu(rname, selection);
+		}
+		else if (btn.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			if (selection == 0)   /* Rename */
+			{
+				bool ok = ir_custom_rename_button(path, index);
+				if (ok)
+				{
+					ir_custom_draw_message("Renamed", NULL);
+					ir_custom_wait_key();
+					return;   /* names changed; caller re-scans */
+				}
+			}
+			xQueueReset(main_q_hdl);
+			return;
+		}
+	}
+}
+
+/*============================================================================*/
+/**
+ * @brief  Edit screen: list the remote's buttons, open a per-button action
+ *         menu on OK. Returns to the per-remote menu on BACK/LEFT.
+ * @param  path  full path to the remote's .ir file
+ * @param  name  display name (title)
+ */
+static void ir_custom_edit_buttons(const char *path, const char *name)
+{
+	S_M1_Buttons_Status btn;
+	S_M1_Main_Q_t       q_item;
+	BaseType_t          ret;
+	uint16_t            selection = 0;
+
+	ir_custom_scan_buttons(path);
+	ir_custom_draw_button_list(name, selection, s_button_count);
+
+	while (1)
+	{
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE || q_item.q_evt_type != Q_EVENT_KEYPAD)
+			continue;
+
+		ret = xQueueReceive(button_events_q_hdl, &btn, 0);
+		if (ret != pdTRUE)
+			continue;
+
+		if (btn.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK ||
+		    btn.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			xQueueReset(main_q_hdl);
+			return;
+		}
+		else if (s_button_count == 0)
+		{
+			continue;   /* empty remote: only BACK does anything */
+		}
+		else if (btn.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			selection = (selection > 0) ? (uint16_t)(selection - 1)
+			                            : (uint16_t)(s_button_count - 1);
+			ir_custom_draw_button_list(name, selection, s_button_count);
+		}
+		else if (btn.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			selection = (selection < s_button_count - 1) ? (uint16_t)(selection + 1) : 0;
+			ir_custom_draw_button_list(name, selection, s_button_count);
+		}
+		else if (btn.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			ir_custom_button_action(path, s_button_names[selection], selection);
+
+			/* Names may have changed; re-scan and clamp the selection. */
+			ir_custom_scan_buttons(path);
+			if (s_button_count == 0)
+				selection = 0;
+			else if (selection >= s_button_count)
+				selection = (uint16_t)(s_button_count - 1);
+			ir_custom_draw_button_list(name, selection, s_button_count);
+		}
+	}
+}
+
+/*============================================================================*/
+/**
+ * @brief  Per-remote screen: choose Play Buttons (shared replay), Learn Button
+ *         (learn + append), or Edit Buttons (rename). Returns to the manager on
+ *         BACK/LEFT.
  * @param  path  full path to the remote's .ir file
  * @param  name  display name (title)
  */
@@ -750,8 +1047,10 @@ static void ir_custom_open_remote(const char *path, const char *name)
 		{
 			if (selection == 0)
 				ir_replay_file(path);       /* shared button-list replay */
-			else
+			else if (selection == 1)
 				ir_custom_learn_button(path);
+			else
+				ir_custom_edit_buttons(path, name);
 
 			ir_custom_draw_remote_menu(name, selection);
 		}
