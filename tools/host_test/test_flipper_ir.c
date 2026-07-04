@@ -314,6 +314,57 @@ static void test_raw_accumulate(void)
 	f_unlink(TEST_PATH);
 }
 
+/* Task 6: raw learn fallback frame-boundary logic. flipper_ir_raw_feed()
+ * accumulates mark/space edges and, on the inter-frame timeout marker, either
+ * finalizes the signal (>= min_samples) or discards it as noise. This is the
+ * IRMP-UNKNOWN capture path minus the on-device RX event source (which supplies
+ * the edge durations and the timeout marker). */
+static void test_raw_feed_frame(void)
+{
+	flipper_ir_signal_t sig;
+	uint16_t i;
+
+	/* Alternating mark/space: a rising edge terminates a mark (stored +us),
+	 * a falling edge terminates a space (stored -us). */
+	static const uint32_t durs[] = { 9000, 4500, 560, 560, 560, 1690, 560 };
+	static const bool     mark[] = { true, false, true, false, true, false, true };
+	static const int32_t  exp[]  = { 9000, -4500, 560, -560, 560, -1690, 560 };
+	const uint16_t ecount = 7;
+
+	printf("test_raw_feed_frame\n");
+
+	/* Too few edges before the timeout marker -> discarded as noise. */
+	flipper_ir_raw_begin(&sig, "Btn");
+	for (i = 0; i < 3; i++)
+		CHECK_EQ_INT(flipper_ir_raw_feed(&sig, durs[i], mark[i], false, 8, 38000, 0.33f),
+		             FLIPPER_IR_RAW_EDGE_ACCUMULATED, "feed: accumulate");
+	CHECK_EQ_INT(flipper_ir_raw_feed(&sig, 0, false, true, 8, 38000, 0.33f),
+	             FLIPPER_IR_RAW_FRAME_NOISE, "feed: noise on short frame");
+	CHECK_EQ_INT(sig.raw.sample_count, 0, "feed: noise resets count");
+	CHECK_EQ_STR(sig.name, "Btn", "feed: noise keeps name");
+	CHECK(!sig.valid, "feed: noise not valid");
+
+	/* Enough edges, then the timeout marker finalizes the signal. */
+	flipper_ir_raw_begin(&sig, "Power");
+	for (i = 0; i < ecount; i++)
+		CHECK_EQ_INT(flipper_ir_raw_feed(&sig, durs[i], mark[i], false, 6, 38000, 0.33f),
+		             FLIPPER_IR_RAW_EDGE_ACCUMULATED, "feed: accumulate valid");
+	CHECK_EQ_INT(flipper_ir_raw_feed(&sig, 15501, true, true, 6, 38000, 0.33f),
+	             FLIPPER_IR_RAW_FRAME_COMPLETE, "feed: complete on timeout");
+	CHECK(sig.valid, "feed: complete valid");
+	CHECK_EQ_INT(sig.raw.sample_count, ecount, "feed: complete count");
+	CHECK_EQ_INT(sig.raw.frequency, 38000, "feed: complete frequency");
+	CHECK(memcmp(sig.raw.samples, exp, sizeof(exp)) == 0, "feed: signed samples");
+
+	/* Edges past the buffer are dropped without corrupting the count. */
+	flipper_ir_raw_begin(&sig, "Full");
+	for (i = 0; i < FLIPPER_IR_RAW_MAX_SAMPLES; i++)
+		flipper_ir_raw_feed(&sig, 100, (i % 2) == 0, false, 6, 38000, 0.33f);
+	CHECK_EQ_INT(flipper_ir_raw_feed(&sig, 100, true, false, 6, 38000, 0.33f),
+	             FLIPPER_IR_RAW_EDGE_DROPPED, "feed: drop past capacity");
+	CHECK_EQ_INT(sig.raw.sample_count, FLIPPER_IR_RAW_MAX_SAMPLES, "feed: capped");
+}
+
 int main(void)
 {
 	printf("== Flipper .ir host round-trip tests ==\n");
@@ -322,6 +373,7 @@ int main(void)
 	test_rewrite_edit();
 	test_create_empty_remote();
 	test_raw_accumulate();
+	test_raw_feed_frame();
 
 	printf("== %d checks, %d failures ==\n", g_checks, g_failures);
 	return (g_failures == 0) ? 0 : 1;

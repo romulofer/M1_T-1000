@@ -591,6 +591,48 @@ bool flipper_ir_raw_finish(flipper_ir_signal_t *sig, uint32_t frequency, float d
 
 /*============================================================================*/
 /**
+ * @brief  Feed one received edge into a raw capture in progress (raw learn
+ *         fallback for IRMP-undecodable signals). Ordinary edges are appended;
+ *         the inter-frame timeout marker (frame_end) closes the frame, either
+ *         finalizing the signal or discarding it as noise.
+ * @param  sig          raw signal being accumulated (from flipper_ir_raw_begin)
+ * @param  duration_us  edge duration in microseconds (ignored when frame_end)
+ * @param  is_mark      true for a mark, false for a space (ignored when frame_end)
+ * @param  frame_end    true if this is the inter-frame timeout marker
+ * @param  min_samples  minimum edges for a real frame (fewer = noise, discarded)
+ * @param  frequency    carrier frequency in Hz applied on FRAME_COMPLETE
+ * @param  duty_cycle   carrier duty cycle applied on FRAME_COMPLETE
+ * @return one of flipper_ir_raw_feed_result_t
+ */
+flipper_ir_raw_feed_result_t flipper_ir_raw_feed(flipper_ir_signal_t *sig,
+                                                 uint32_t duration_us, bool is_mark,
+                                                 bool frame_end, uint16_t min_samples,
+                                                 uint32_t frequency, float duty_cycle)
+{
+	if (sig == NULL)
+		return FLIPPER_IR_RAW_EDGE_DROPPED;
+
+	if (!frame_end)
+	{
+		return flipper_ir_raw_add_edge(sig, duration_us, is_mark)
+			? FLIPPER_IR_RAW_EDGE_ACCUMULATED
+			: FLIPPER_IR_RAW_EDGE_DROPPED;
+	}
+
+	/* End of frame: enough edges -> finalize, otherwise reset as noise. */
+	if (sig->raw.sample_count >= min_samples)
+	{
+		flipper_ir_raw_finish(sig, frequency, duty_cycle);
+		return FLIPPER_IR_RAW_FRAME_COMPLETE;
+	}
+
+	sig->raw.sample_count = 0;   /* keep the name, drop the noise samples */
+	sig->valid = false;
+	return FLIPPER_IR_RAW_FRAME_NOISE;
+}
+
+/*============================================================================*/
+/**
  * @brief  Count the number of IR signals in a .ir file without loading all data
  * @param  path  file path
  * @return signal count, or 0 on error

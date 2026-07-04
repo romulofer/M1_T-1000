@@ -76,6 +76,27 @@ void flipper_ir_raw_begin(flipper_ir_signal_t *sig, const char *name);
 bool flipper_ir_raw_add_edge(flipper_ir_signal_t *sig, uint32_t duration_us, bool is_mark);
 bool flipper_ir_raw_finish(flipper_ir_signal_t *sig, uint32_t frequency, float duty_cycle);
 
+/* Outcome of feeding one RX edge event into a raw capture in progress. */
+typedef enum {
+	FLIPPER_IR_RAW_EDGE_ACCUMULATED = 0, /* edge appended, frame continuing */
+	FLIPPER_IR_RAW_EDGE_DROPPED,         /* sample buffer full, edge ignored */
+	FLIPPER_IR_RAW_FRAME_COMPLETE,       /* timeout marker, signal finalized (valid) */
+	FLIPPER_IR_RAW_FRAME_NOISE           /* timeout marker, too few edges -> reset */
+} flipper_ir_raw_feed_result_t;
+
+/* Feed one received edge into a raw capture (the raw learn fallback used when
+ * IRMP cannot decode a signal). Ordinary edges are accumulated via add_edge
+ * (is_mark: true for a mark / carrier-on interval, false for a space). When
+ * frame_end is true (the inter-frame timeout marker), duration_us/is_mark are
+ * ignored and the frame is closed: if at least min_samples edges were captured
+ * the signal is finished (frequency/duty_cycle applied, marked valid) and
+ * FRAME_COMPLETE is returned; otherwise the accumulator is reset — keeping the
+ * name — as noise and FRAME_NOISE is returned. */
+flipper_ir_raw_feed_result_t flipper_ir_raw_feed(flipper_ir_signal_t *sig,
+                                                 uint32_t duration_us, bool is_mark,
+                                                 bool frame_end, uint16_t min_samples,
+                                                 uint32_t frequency, float duty_cycle);
+
 /* Map Flipper protocol name string to IRMP protocol ID */
 uint8_t flipper_ir_proto_to_irmp(const char *name);
 
