@@ -5,7 +5,7 @@ All notable changes to the M1 T-1000 firmware will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- **Infrared → Create Remote: build, learn, replay, and edit custom IR
+- **Infrared → Custom Remotes: build, learn, replay, and edit custom IR
   remotes on-device.** User remotes are standard Flipper `.ir` files at
   `0:/IR/*.ir`:
   - Create a named, empty remote via the on-screen keyboard (name sanitized to

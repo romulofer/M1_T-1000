@@ -263,7 +263,7 @@ S_M1_Menu_t menu_Infrared_Saved_Remotes =
 #ifdef M1_APP_FILE_IMPORT_ENABLE
 S_M1_Menu_t menu_Infrared_Create_Remote =
 {
-    "Create Remote", ir_custom_run, NULL, NULL, 0, 0, NULL, NULL, NULL
+    "Custom Remotes", ir_custom_run, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 #endif
 
