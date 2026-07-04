@@ -226,12 +226,51 @@ static void test_rewrite_edit(void)
 	f_unlink(TEST_PATH);
 }
 
+/* Task 3: a freshly created remote is a valid, empty, appendable .ir. This is
+ * the file-level contract behind ir_custom_create_empty() — the UI/VKB/sanitize
+ * layers are firmware-coupled and verified on-device. */
+static void test_create_empty_remote(void)
+{
+	flipper_file_t ff;
+	flipper_ir_signal_t sig;
+	flipper_ir_signal_t got[4];
+	uint16_t n;
+
+	printf("test_create_empty_remote\n");
+
+	f_unlink(TEST_PATH);
+
+	/* Create an empty remote: header only, no signals. */
+	CHECK(ff_open_write(&ff, TEST_PATH), "create: open_write");
+	CHECK(flipper_ir_write_header(&ff), "create: write header");
+	ff_close(&ff);
+
+	/* A brand-new remote must parse as a valid .ir with zero buttons. */
+	CHECK(flipper_ir_open(&ff, TEST_PATH), "create: reopens as valid .ir");
+	ff_close(&ff);
+	CHECK_EQ_INT(flipper_ir_count_signals(TEST_PATH), 0, "create: 0 signals");
+
+	/* And it must be immediately appendable (the learn flow adds buttons). */
+	CHECK(flipper_ir_open_append(&ff, TEST_PATH), "create: open_append");
+	make_parsed(&sig, "Power", IRMP_NEC_PROTOCOL, 0x0007, 0x0002);
+	CHECK(flipper_ir_write_signal(&ff, &sig), "create: append first button");
+	ff_close(&ff);
+
+	CHECK_EQ_INT(flipper_ir_count_signals(TEST_PATH), 1, "create: 1 signal after append");
+	n = read_all(TEST_PATH, got, 4);
+	CHECK_EQ_INT(n, 1, "create: reparse count");
+	CHECK_EQ_STR(got[0].name, "Power", "create: appended button name");
+
+	f_unlink(TEST_PATH);
+}
+
 int main(void)
 {
 	printf("== Flipper .ir host round-trip tests ==\n");
 
 	test_append_roundtrip();
 	test_rewrite_edit();
+	test_create_empty_remote();
 
 	printf("== %d checks, %d failures ==\n", g_checks, g_failures);
 	return (g_failures == 0) ? 0 : 1;
