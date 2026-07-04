@@ -5,12 +5,12 @@ Custom remotes are stored as standard Flipper Zero `.ir` files at `0:/IR/*.ir`
 (the SD-card root of the IR folder, alongside the shipped category directories),
 so they interoperate with the Flipper IRDB format.
 
-Everything below is reachable from **Infrared → Create Remote**. The original
+Everything below is reachable from **Infrared → Custom Remotes**. The original
 three Infrared entries (Universal Remotes, Learn, Replay) are unchanged.
 
 ## Create a remote
 
-1. **Infrared → Create Remote** opens the *My Remotes* manager: `[+ New Remote]`
+1. **Infrared → Custom Remotes** opens the *My Remotes* manager: `[+ New Remote]`
    followed by every `0:/IR/*.ir` file.
 2. Select `[+ New Remote]`, type a name on the on-screen keyboard, confirm.
    - The name is sanitized to a FAT-legal filename (illegal characters → `_`,

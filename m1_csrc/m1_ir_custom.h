@@ -18,7 +18,7 @@
 
 #ifdef M1_APP_FILE_IMPORT_ENABLE
 
-/* Main entry point — "Create Remote" Infrared submenu item. */
+/* Main entry point — "Custom Remotes" Infrared submenu item. */
 void ir_custom_run(void);
 
 #endif /* M1_APP_FILE_IMPORT_ENABLE */

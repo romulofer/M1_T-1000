@@ -34,7 +34,6 @@
 #include "m1_infrared.h"
 #include "m1_led_indicator.h"
 #include "m1_lp5814.h"
-#include "m1_buzzer.h"
 #include "flipper_file.h"
 #include "flipper_ir.h"
 #include "ff.h"
@@ -411,7 +410,7 @@ static void ir_custom_draw_list(uint16_t selection, uint16_t total)
 	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
 
 	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-	u8g2_DrawStr(&m1_u8g2, 2, 10, "Create Remote");
+	u8g2_DrawStr(&m1_u8g2, 2, 10, "Custom Remotes");
 	u8g2_DrawHLine(&m1_u8g2, 0, IR_CUSTOM_LIST_HEADER_H, 128);
 
 	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
@@ -655,7 +654,6 @@ static void ir_custom_learn_button(const char *path)
 			/* Prefer an IRMP decode; keep the first one and stop capturing. */
 			if (cap == IR_CAP_NONE && irmp_get_data(&data))
 			{
-				m1_buzzer_notification();
 				cap = IR_CAP_PARSED;
 				ir_custom_draw_learn(IR_CAP_PARSED, &data, 0);
 			}
@@ -675,7 +673,6 @@ static void ir_custom_learn_button(const char *path)
 
 				if (r == FLIPPER_IR_RAW_FRAME_COMPLETE)
 				{
-					m1_buzzer_notification();
 					cap = IR_CAP_RAW;
 					ir_custom_draw_learn(IR_CAP_RAW, NULL, s_learn_raw.raw.sample_count);
 				}
@@ -1117,7 +1114,7 @@ static void ir_custom_open_remote(const char *path, const char *name)
 
 /*============================================================================*/
 /**
- * @brief  Custom-remote entry point ("Create Remote" Infrared submenu item).
+ * @brief  Custom-remote entry point ("Custom Remotes" Infrared submenu item).
  *         Shows a manager list: "[+ New Remote]" plus every user-built
  *         0:/IR/*.ir remote. New -> name+create; opening a remote runs the
  *         shared scrolling button-list replay screen (ir_replay_file). Learn
