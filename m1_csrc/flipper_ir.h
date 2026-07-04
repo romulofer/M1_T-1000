@@ -51,8 +51,22 @@ bool flipper_ir_read_signal(flipper_file_t *ctx, flipper_ir_signal_t *out);
 /* Write a .ir file header */
 bool flipper_ir_write_header(flipper_file_t *ctx);
 
+/* Open an existing .ir file to append signals (no header written; the file must
+ * already contain a valid header). Ready for flipper_ir_write_signal(). */
+bool flipper_ir_open_append(flipper_file_t *ctx, const char *path);
+
 /* Write a signal to .ir file */
 bool flipper_ir_write_signal(flipper_file_t *ctx, const flipper_ir_signal_t *sig);
+
+/* Per-signal callback for flipper_ir_rewrite(). Called once per signal in file
+ * order. The signal may be mutated in place (e.g. renamed). Return true to keep
+ * it (as-is or mutated), false to drop it. */
+typedef bool (*flipper_ir_rewrite_cb_t)(uint16_t index, flipper_ir_signal_t *sig, void *user);
+
+/* Rewrite a .ir file by streaming every signal through cb into a temp file,
+ * then atomically replacing the original. Stack buffers only, one signal in
+ * flight. Used for button rename/delete/edit. Returns true on success. */
+bool flipper_ir_rewrite(const char *path, flipper_ir_rewrite_cb_t cb, void *user);
 
 /* Map Flipper protocol name string to IRMP protocol ID */
 uint8_t flipper_ir_proto_to_irmp(const char *name);

@@ -338,6 +338,21 @@ bool flipper_ir_write_header(flipper_file_t *ctx)
 
 /*============================================================================*/
 /**
+ * @brief  Open an existing .ir file to append further signals. The file must
+ *         already contain a valid header (written earlier via
+ *         flipper_ir_write_header); this positions at EOF so the next
+ *         flipper_ir_write_signal() appends without duplicating the header.
+ * @param  ctx   flipper file context
+ * @param  path  file path
+ * @return true if the file was opened for appending
+ */
+bool flipper_ir_open_append(flipper_file_t *ctx, const char *path)
+{
+	return ff_open_append(ctx, path);
+}
+
+/*============================================================================*/
+/**
  * @brief  Write a single IR signal to a .ir file
  */
 bool flipper_ir_write_signal(flipper_file_t *ctx, const flipper_ir_signal_t *sig)
@@ -412,6 +427,97 @@ bool flipper_ir_write_signal(flipper_file_t *ctx, const flipper_ir_signal_t *sig
 		if (!ff_write_kv_str(ctx, "data", buf))
 			return false;
 	}
+
+	return true;
+}
+
+/*============================================================================*/
+/**
+ * @brief  Rewrite a .ir file, streaming every signal through a callback into a
+ *         temporary file and then atomically replacing the original. Used for
+ *         edit operations (rename/delete a button) where the variable-length
+ *         Flipper blocks make in-place editing impractical.
+ *
+ *         Only one signal is held in memory at a time (stack allocation, no
+ *         heap). The callback may mutate the signal (e.g. rename) and returns
+ *         true to keep it or false to drop it.
+ *
+ * @param  path  full path to the .ir file to rewrite in place
+ * @param  cb    per-signal callback (must not be NULL)
+ * @param  user  opaque pointer passed through to the callback
+ * @return true if the file was rewritten and replaced successfully
+ */
+bool flipper_ir_rewrite(const char *path, flipper_ir_rewrite_cb_t cb, void *user)
+{
+	flipper_file_t      src;
+	flipper_file_t      dst;
+	flipper_ir_signal_t sig;              /* single signal in flight (stack) */
+	char                tmp_path[256];
+	uint16_t            index = 0;
+	bool                ok = true;
+	int                 n;
+
+	if (path == NULL || cb == NULL)
+		return false;
+
+	/* Build "<path>.tmp"; bail out if it would be truncated. */
+	n = snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+	if (n < 0 || n >= (int)sizeof(tmp_path))
+		return false;
+
+	/* Open source (validates header) and a fresh temp destination. */
+	if (!flipper_ir_open(&src, path))
+		return false;
+
+	if (!ff_open_write(&dst, tmp_path))
+	{
+		ff_close(&src);
+		return false;
+	}
+
+	if (!flipper_ir_write_header(&dst))
+	{
+		ff_close(&src);
+		ff_close(&dst);
+		f_unlink(tmp_path);
+		return false;
+	}
+
+	/* Stream each signal through the callback into the temp file. */
+	while (flipper_ir_read_signal(&src, &sig))
+	{
+		bool keep = cb(index, &sig, user);
+		index++;
+
+		if (keep)
+		{
+			if (!flipper_ir_write_signal(&dst, &sig))
+			{
+				ok = false;
+				break;
+			}
+		}
+	}
+
+	ff_close(&src);
+	ff_close(&dst);
+
+	if (!ok)
+	{
+		f_unlink(tmp_path);
+		return false;
+	}
+
+	/* Atomically replace the original. FatFs f_rename() will not overwrite an
+	 * existing target, so unlink the original first, then rename the temp. */
+	if (f_unlink(path) != FR_OK)
+	{
+		f_unlink(tmp_path);
+		return false;
+	}
+
+	if (f_rename(tmp_path, path) != FR_OK)
+		return false;
 
 	return true;
 }
