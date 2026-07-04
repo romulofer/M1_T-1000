@@ -57,10 +57,26 @@
 
 #define IR_CUSTOM_NEW_LABEL     "[+ New Remote]"
 
+/* Raw learn fallback (entered only when IRMP cannot decode the signal). */
+#define IR_LEARN_GAP_MS         200      /* no edge for this long -> end of frame */
+#define IR_RAW_GAP_US           12000    /* a space this long = inter-frame gap  */
+#define IR_RAW_MIN_SAMPLES      8        /* fewer than this = noise, discard      */
+#define IR_RAW_FREQ_DEFAULT     38000
+#define IR_RAW_DUTY_DEFAULT     0.33f
+
+typedef enum {
+	IR_CAP_NONE = 0,
+	IR_CAP_PARSED,
+	IR_CAP_RAW
+} ir_cap_state_t;
+
 //****************************** V A R I A B L E S *****************************/
 
 static char     s_remote_names[IR_CUSTOM_MAX_REMOTES][IR_CUSTOM_DISP_NAME_LEN];
 static uint16_t s_remote_count;
+
+/* Raw-learn accumulator kept out of the task stack (one learn at a time). */
+static flipper_ir_signal_t s_learn_raw;
 
 /* Per-remote action menu (grows with edit actions in later slices). */
 static const char *const s_remote_menu_items[] = { "Play Buttons", "Learn Button" };
@@ -79,8 +95,9 @@ static void        ir_custom_scan_remotes(void);
 static const char *ir_custom_item_text(uint16_t idx);
 static void        ir_custom_draw_list(uint16_t selection, uint16_t total);
 static bool        ir_custom_append_parsed(const char *path, const IRMP_DATA *data);
+static bool        ir_custom_append_raw(const char *path, flipper_ir_signal_t *sig);
 static void        ir_custom_draw_remote_menu(const char *name, uint8_t selection);
-static void        ir_custom_draw_learn(bool captured, const IRMP_DATA *data);
+static void        ir_custom_draw_learn(ir_cap_state_t state, const IRMP_DATA *data, uint16_t raw_count);
 static void        ir_custom_draw_message(const char *l1, const char *l2);
 static void        ir_custom_learn_button(const char *path);
 static void        ir_custom_open_remote(const char *path, const char *name);
@@ -450,6 +467,38 @@ static bool ir_custom_append_parsed(const char *path, const IRMP_DATA *data)
 
 /*============================================================================*/
 /**
+ * @brief  Append an already-accumulated raw signal to a remote file. Prompts
+ *         for a button name; escaping the keyboard aborts the append.
+ * @param  path  full path to the remote's .ir file
+ * @param  sig   finalized raw signal (name is overwritten by the entered name)
+ * @return true if a button was appended
+ */
+static bool ir_custom_append_raw(const char *path, flipper_ir_signal_t *sig)
+{
+	flipper_file_t ff;
+	char           default_name[IR_CUSTOM_NAME_MAX_LEN] = "Raw";
+	char           entered[IR_CUSTOM_NAME_MAX_LEN];
+	uint8_t        got;
+	bool           ok;
+
+	entered[0] = '\0';
+
+	got = m1_vkb_get_filename("Button name:", default_name, entered);
+	if (got == 0)
+		return false;   /* cancelled the append */
+
+	ir_custom_sanitize_name(entered, sig->name, sizeof(sig->name));
+
+	if (!flipper_ir_open_append(&ff, path))
+		return false;
+
+	ok = flipper_ir_write_signal(&ff, sig);
+	ff_close(&ff);
+	return ok;
+}
+
+/*============================================================================*/
+/**
  * @brief  Draw the per-remote action menu (Play Buttons / Learn Button).
  */
 static void ir_custom_draw_remote_menu(const char *name, uint8_t selection)
@@ -488,10 +537,11 @@ static void ir_custom_draw_remote_menu(const char *name, uint8_t selection)
 
 /*============================================================================*/
 /**
- * @brief  Draw the learn screen: a prompt while waiting, or the captured
- *         protocol/address/command once a signal decodes.
+ * @brief  Draw the learn screen: a prompt while waiting, the decoded
+ *         protocol/address/command for a parsed capture, or a sample count for
+ *         a raw (IRMP-undecodable) capture.
  */
-static void ir_custom_draw_learn(bool captured, const IRMP_DATA *data)
+static void ir_custom_draw_learn(ir_cap_state_t state, const IRMP_DATA *data, uint16_t raw_count)
 {
 	char line[24];
 
@@ -503,19 +553,26 @@ static void ir_custom_draw_learn(bool captured, const IRMP_DATA *data)
 	u8g2_DrawHLine(&m1_u8g2, 0, 12, 128);
 
 	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	if (!captured || data == NULL)
-	{
-		u8g2_DrawStr(&m1_u8g2, 4, 26, "Point remote at M1,");
-		u8g2_DrawStr(&m1_u8g2, 4, 38, "press a button...");
-		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "", arrowright_8x8);
-	}
-	else
+	if (state == IR_CAP_PARSED && data != NULL)
 	{
 		u8g2_DrawStr(&m1_u8g2, 4, 24, "Captured:");
 		u8g2_DrawStr(&m1_u8g2, 4, 34, flipper_ir_irmp_to_proto(data->protocol));
 		snprintf(line, sizeof(line), "A:%04X C:%04X", data->address, data->command);
 		u8g2_DrawStr(&m1_u8g2, 4, 44, line);
 		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Save", arrowright_8x8);
+	}
+	else if (state == IR_CAP_RAW)
+	{
+		u8g2_DrawStr(&m1_u8g2, 4, 24, "Captured (raw):");
+		snprintf(line, sizeof(line), "%u samples", (unsigned)raw_count);
+		u8g2_DrawStr(&m1_u8g2, 4, 38, line);
+		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Save", arrowright_8x8);
+	}
+	else
+	{
+		u8g2_DrawStr(&m1_u8g2, 4, 26, "Point remote at M1,");
+		u8g2_DrawStr(&m1_u8g2, 4, 38, "press a button...");
+		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "", arrowright_8x8);
 	}
 	m1_u8g2_nextpage();
 }
