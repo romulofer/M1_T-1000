@@ -31,6 +31,10 @@
 #include "m1_lcd.h"
 #include "m1_tasks.h"
 #include "m1_virtual_kb.h"
+#include "m1_infrared.h"
+#include "m1_led_indicator.h"
+#include "m1_lp5814.h"
+#include "m1_buzzer.h"
 #include "flipper_file.h"
 #include "flipper_ir.h"
 #include "ff.h"
@@ -58,6 +62,11 @@
 static char     s_remote_names[IR_CUSTOM_MAX_REMOTES][IR_CUSTOM_DISP_NAME_LEN];
 static uint16_t s_remote_count;
 
+/* Per-remote action menu (grows with edit actions in later slices). */
+static const char *const s_remote_menu_items[] = { "Play Buttons", "Learn Button" };
+#define IR_CUSTOM_REMOTE_MENU_COUNT \
+	((uint8_t)(sizeof(s_remote_menu_items) / sizeof(s_remote_menu_items[0])))
+
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
 
 static void        ir_custom_sanitize_name(const char *in, char *out, size_t out_len);
@@ -69,6 +78,12 @@ static void        ir_custom_create_flow(void);
 static void        ir_custom_scan_remotes(void);
 static const char *ir_custom_item_text(uint16_t idx);
 static void        ir_custom_draw_list(uint16_t selection, uint16_t total);
+static bool        ir_custom_append_parsed(const char *path, const IRMP_DATA *data);
+static void        ir_custom_draw_remote_menu(const char *name, uint8_t selection);
+static void        ir_custom_draw_learn(bool captured, const IRMP_DATA *data);
+static void        ir_custom_draw_message(const char *l1, const char *l2);
+static void        ir_custom_learn_button(const char *path);
+static void        ir_custom_open_remote(const char *path, const char *name);
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
 
@@ -392,6 +407,269 @@ static void ir_custom_draw_list(uint16_t selection, uint16_t total)
 
 /*============================================================================*/
 /**
+ * @brief  Append a freshly-learned parsed signal to a remote file. Prompts for
+ *         a button name (auto-suggested "<Proto>_<Cmd>", matches the existing
+ *         learned-signal convention); escaping the keyboard aborts the append.
+ * @param  path  full path to the remote's .ir file
+ * @param  data  decoded IRMP signal
+ * @return true if a button was appended
+ */
+static bool ir_custom_append_parsed(const char *path, const IRMP_DATA *data)
+{
+	flipper_file_t      ff;
+	flipper_ir_signal_t sig;
+	char                default_name[IR_CUSTOM_NAME_MAX_LEN];
+	char                entered[IR_CUSTOM_NAME_MAX_LEN];
+	uint8_t             got;
+	bool                ok;
+
+	snprintf(default_name, sizeof(default_name), "%s_%04X",
+	         flipper_ir_irmp_to_proto(data->protocol), data->command);
+	entered[0] = '\0';
+
+	got = m1_vkb_get_filename("Button name:", default_name, entered);
+	if (got == 0)
+		return false;   /* cancelled the append */
+
+	memset(&sig, 0, sizeof(sig));
+	sig.type = FLIPPER_IR_SIGNAL_PARSED;
+	sig.valid = true;
+	ir_custom_sanitize_name(entered, sig.name, sizeof(sig.name));
+	sig.parsed.protocol = data->protocol;
+	sig.parsed.address  = data->address;
+	sig.parsed.command  = data->command;
+	sig.parsed.flags    = data->flags;
+
+	if (!flipper_ir_open_append(&ff, path))
+		return false;
+
+	ok = flipper_ir_write_signal(&ff, &sig);
+	ff_close(&ff);
+	return ok;
+}
+
+/*============================================================================*/
+/**
+ * @brief  Draw the per-remote action menu (Play Buttons / Learn Button).
+ */
+static void ir_custom_draw_remote_menu(const char *name, uint8_t selection)
+{
+	uint8_t i;
+
+	m1_u8g2_firstpage();
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(&m1_u8g2, 2, 10, (name != NULL) ? name : "Remote");
+	u8g2_DrawHLine(&m1_u8g2, 0, IR_CUSTOM_LIST_HEADER_H, 128);
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	for (i = 0; i < IR_CUSTOM_REMOTE_MENU_COUNT; i++)
+	{
+		uint8_t y = (uint8_t)(IR_CUSTOM_LIST_START_Y + (i * IR_CUSTOM_LIST_ITEM_H));
+
+		if (i == selection)
+		{
+			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+			u8g2_DrawBox(&m1_u8g2, 0, y, 128, IR_CUSTOM_LIST_ITEM_H);
+			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
+			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_remote_menu_items[i]);
+			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		}
+		else
+		{
+			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_remote_menu_items[i]);
+		}
+	}
+
+	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Select", arrowright_8x8);
+	m1_u8g2_nextpage();
+}
+
+/*============================================================================*/
+/**
+ * @brief  Draw the learn screen: a prompt while waiting, or the captured
+ *         protocol/address/command once a signal decodes.
+ */
+static void ir_custom_draw_learn(bool captured, const IRMP_DATA *data)
+{
+	char line[24];
+
+	m1_u8g2_firstpage();
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(&m1_u8g2, 2, 10, "Learn Button");
+	u8g2_DrawHLine(&m1_u8g2, 0, 12, 128);
+
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	if (!captured || data == NULL)
+	{
+		u8g2_DrawStr(&m1_u8g2, 4, 26, "Point remote at M1,");
+		u8g2_DrawStr(&m1_u8g2, 4, 38, "press a button...");
+		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "", arrowright_8x8);
+	}
+	else
+	{
+		u8g2_DrawStr(&m1_u8g2, 4, 24, "Captured:");
+		u8g2_DrawStr(&m1_u8g2, 4, 34, flipper_ir_irmp_to_proto(data->protocol));
+		snprintf(line, sizeof(line), "A:%04X C:%04X", data->address, data->command);
+		u8g2_DrawStr(&m1_u8g2, 4, 44, line);
+		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Save", arrowright_8x8);
+	}
+	m1_u8g2_nextpage();
+}
+
+/*============================================================================*/
+/**
+ * @brief  Draw a two-line message screen (returns on any key via wait_key).
+ */
+static void ir_custom_draw_message(const char *l1, const char *l2)
+{
+	m1_u8g2_firstpage();
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	if (l1 != NULL)
+		u8g2_DrawStr(&m1_u8g2, 4, 28, l1);
+	if (l2 != NULL)
+		u8g2_DrawStr(&m1_u8g2, 4, 40, l2);
+	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "", arrowright_8x8);
+	m1_u8g2_nextpage();
+}
+
+/*============================================================================*/
+/**
+ * @brief  Learn one IRMP-decodable button and append it to the open remote.
+ *         Reuses the IR receiver (infrared_decode_sys_init) and IRMP decode
+ *         path, with LED/buzzer feedback like the stock Learn flow.
+ * @param  path  full path to the remote's .ir file
+ */
+static void ir_custom_learn_button(const char *path)
+{
+	S_M1_Buttons_Status btn;
+	S_M1_Main_Q_t       q_item;
+	BaseType_t          ret;
+	IRMP_DATA           data;
+	bool                captured = false;
+
+	infrared_decode_sys_init();
+	irmp_init();
+	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
+
+	memset(&data, 0, sizeof(data));
+	ir_custom_draw_learn(false, NULL);
+
+	while (1)
+	{
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE)
+			continue;
+
+		if (q_item.q_evt_type == Q_EVENT_IRRED_RX)
+		{
+			irmp_data_sampler(q_item.q_data.ir_rx_data.ir_edge_te,
+			                  q_item.q_data.ir_rx_data.ir_edge_dir);
+			if (irmp_get_data(&data))
+			{
+				m1_buzzer_notification();
+				captured = true;
+				ir_custom_draw_learn(true, &data);
+			}
+		}
+		else if (q_item.q_evt_type == Q_EVENT_KEYPAD)
+		{
+			ret = xQueueReceive(button_events_q_hdl, &btn, 0);
+			if (ret != pdTRUE)
+				continue;
+
+			if (btn.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK ||
+			    btn.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
+			{
+				m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
+				infrared_decode_sys_deinit();
+				xQueueReset(main_q_hdl);
+				return;
+			}
+			else if ((btn.event[BUTTON_OK_KP_ID]    == BUTTON_EVENT_CLICK ||
+			          btn.event[BUTTON_RIGHT_KP_ID]  == BUTTON_EVENT_CLICK) && captured)
+			{
+				bool ok;
+
+				/* Tear RX down before the keyboard drives its own event loop. */
+				m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
+				infrared_decode_sys_deinit();
+
+				ok = ir_custom_append_parsed(path, &data);
+				ir_custom_draw_message(ok ? "Button added" : "Add cancelled/failed", NULL);
+				ir_custom_wait_key();
+				xQueueReset(main_q_hdl);
+				return;
+			}
+		}
+	}
+}
+
+/*============================================================================*/
+/**
+ * @brief  Per-remote screen: choose Play Buttons (shared replay) or Learn
+ *         Button (learn + append). Returns to the manager on BACK/LEFT.
+ * @param  path  full path to the remote's .ir file
+ * @param  name  display name (title)
+ */
+static void ir_custom_open_remote(const char *path, const char *name)
+{
+	S_M1_Buttons_Status btn;
+	S_M1_Main_Q_t       q_item;
+	BaseType_t          ret;
+	uint8_t             selection = 0;
+
+	ir_custom_draw_remote_menu(name, selection);
+
+	while (1)
+	{
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE)
+			continue;
+
+		if (q_item.q_evt_type != Q_EVENT_KEYPAD)
+			continue;
+
+		ret = xQueueReceive(button_events_q_hdl, &btn, 0);
+		if (ret != pdTRUE)
+			continue;
+
+		if (btn.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK ||
+		    btn.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			xQueueReset(main_q_hdl);
+			return;
+		}
+		else if (btn.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			selection = (selection > 0) ? (uint8_t)(selection - 1)
+			                            : (uint8_t)(IR_CUSTOM_REMOTE_MENU_COUNT - 1);
+			ir_custom_draw_remote_menu(name, selection);
+		}
+		else if (btn.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			selection = (selection < IR_CUSTOM_REMOTE_MENU_COUNT - 1)
+			                ? (uint8_t)(selection + 1) : 0;
+			ir_custom_draw_remote_menu(name, selection);
+		}
+		else if (btn.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			if (selection == 0)
+				ir_replay_file(path);       /* shared button-list replay */
+			else
+				ir_custom_learn_button(path);
+
+			ir_custom_draw_remote_menu(name, selection);
+		}
+	}
+}
+
+/*============================================================================*/
+/**
  * @brief  Custom-remote entry point ("Create Remote" Infrared submenu item).
  *         Shows a manager list: "[+ New Remote]" plus every user-built
  *         0:/IR/*.ir remote. New -> name+create; opening a remote runs the
@@ -451,7 +729,7 @@ void ir_custom_run(void)
 				char path[IR_CUSTOM_PATH_MAX_LEN];
 				snprintf(path, sizeof(path), "%s/%s.ir",
 				         IR_CUSTOM_DIR, s_remote_names[selection - 1]);
-				ir_replay_file(path);
+				ir_custom_open_remote(path, s_remote_names[selection - 1]);
 			}
 
 			/* A remote may have been created; re-scan and clamp selection. */
