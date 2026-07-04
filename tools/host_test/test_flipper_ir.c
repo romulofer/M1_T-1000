@@ -410,6 +410,58 @@ static void test_rename_signal(void)
 	f_unlink(TEST_PATH);
 }
 
+/* Task 9: delete the button at a target index, preserving every other signal
+ * and the file order; deleting the last remaining button leaves a valid,
+ * header-only .ir. Reusable wrapper over flipper_ir_rewrite. */
+static void test_delete_signal(void)
+{
+	flipper_file_t ff;
+	flipper_ir_signal_t sig;
+	flipper_ir_signal_t got[8];
+	uint16_t n;
+
+	printf("test_delete_signal\n");
+	f_unlink(TEST_PATH);
+
+	/* Seed: Power (parsed), Vol_Up (parsed), RawBtn (raw). */
+	CHECK(ff_open_write(&ff, TEST_PATH), "delete seed: open_write");
+	CHECK(flipper_ir_write_header(&ff), "delete seed: header");
+	make_parsed(&sig, "Power", IRMP_NEC_PROTOCOL, 0x0007, 0x0002);
+	CHECK(flipper_ir_write_signal(&ff, &sig), "delete seed: Power");
+	make_parsed(&sig, "Vol_Up", IRMP_SAMSUNG32_PROTOCOL, 0x0707, 0x00E0);
+	CHECK(flipper_ir_write_signal(&ff, &sig), "delete seed: Vol_Up");
+	make_raw(&sig, "RawBtn");
+	CHECK(flipper_ir_write_signal(&ff, &sig), "delete seed: RawBtn");
+	ff_close(&ff);
+
+	/* Drop the middle button; count falls by 1, neighbours intact + reordered. */
+	CHECK(flipper_ir_delete_signal(TEST_PATH, 1), "delete returns true");
+	n = read_all(TEST_PATH, got, 8);
+	CHECK_EQ_INT(n, 2, "delete: count drops to 2");
+	CHECK_EQ_STR(got[0].name, "Power", "delete: sig0 preserved");
+	CHECK_EQ_INT(got[0].parsed.command, 0x0002, "delete: sig0 cmd intact");
+	CHECK_EQ_STR(got[1].name, "RawBtn", "delete: sig1 is now RawBtn");
+	CHECK_EQ_INT(got[1].raw.sample_count, K_RAW_COUNT, "delete: raw samples intact");
+
+	/* Out-of-range index is a no-op (still true, nothing removed). */
+	CHECK(flipper_ir_delete_signal(TEST_PATH, 9), "delete: OOB still true");
+	CHECK_EQ_INT(flipper_ir_count_signals(TEST_PATH), 2, "delete: OOB count unchanged");
+
+	/* Delete down to zero: the file stays a valid, appendable header-only .ir. */
+	CHECK(flipper_ir_delete_signal(TEST_PATH, 0), "delete: remove first of two");
+	CHECK(flipper_ir_delete_signal(TEST_PATH, 0), "delete: remove last button");
+	CHECK_EQ_INT(flipper_ir_count_signals(TEST_PATH), 0, "delete: empty remote");
+	CHECK(flipper_ir_open(&ff, TEST_PATH), "delete: empty file still valid");
+	ff_close(&ff);
+	CHECK(flipper_ir_open_append(&ff, TEST_PATH), "delete: empty file appendable");
+	make_parsed(&sig, "Re", IRMP_NEC_PROTOCOL, 0x0001, 0x0002);
+	CHECK(flipper_ir_write_signal(&ff, &sig), "delete: append after empty");
+	ff_close(&ff);
+	CHECK_EQ_INT(flipper_ir_count_signals(TEST_PATH), 1, "delete: re-append works");
+
+	f_unlink(TEST_PATH);
+}
+
 int main(void)
 {
 	printf("== Flipper .ir host round-trip tests ==\n");
@@ -420,6 +472,7 @@ int main(void)
 	test_raw_accumulate();
 	test_raw_feed_frame();
 	test_rename_signal();
+	test_delete_signal();
 
 	printf("== %d checks, %d failures ==\n", g_checks, g_failures);
 	return (g_failures == 0) ? 0 : 1;
