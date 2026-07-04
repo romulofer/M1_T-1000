@@ -524,6 +524,73 @@ bool flipper_ir_rewrite(const char *path, flipper_ir_rewrite_cb_t cb, void *user
 
 /*============================================================================*/
 /**
+ * @brief  Begin accumulating a raw IR signal into sig. Clears sig, sets the raw
+ *         type, and copies the given name. Sample buffer starts empty.
+ * @param  sig   signal to initialize
+ * @param  name  signal name (may be NULL)
+ */
+void flipper_ir_raw_begin(flipper_ir_signal_t *sig, const char *name)
+{
+	if (sig == NULL)
+		return;
+
+	memset(sig, 0, sizeof(*sig));
+	sig->type = FLIPPER_IR_SIGNAL_RAW;
+	sig->valid = false;
+
+	if (name != NULL)
+	{
+		strncpy(sig->name, name, FLIPPER_IR_NAME_MAX_LEN - 1);
+		sig->name[FLIPPER_IR_NAME_MAX_LEN - 1] = '\0';
+	}
+}
+
+/*============================================================================*/
+/**
+ * @brief  Append one edge to a raw signal being accumulated. Marks (carrier on)
+ *         are stored as +duration, spaces as -duration (Flipper raw convention).
+ * @param  sig          signal being accumulated
+ * @param  duration_us  edge duration in microseconds
+ * @param  is_mark      true for a mark, false for a space
+ * @return true if appended, false if the sample buffer is full
+ */
+bool flipper_ir_raw_add_edge(flipper_ir_signal_t *sig, uint32_t duration_us, bool is_mark)
+{
+	if (sig == NULL)
+		return false;
+
+	if (sig->raw.sample_count >= FLIPPER_IR_RAW_MAX_SAMPLES)
+		return false;
+
+	sig->raw.samples[sig->raw.sample_count++] =
+		is_mark ? (int32_t)duration_us : -(int32_t)duration_us;
+
+	return true;
+}
+
+/*============================================================================*/
+/**
+ * @brief  Finish raw accumulation: record carrier frequency and duty cycle and
+ *         mark the signal valid if at least one edge was captured.
+ * @param  sig         accumulated signal
+ * @param  frequency   carrier frequency in Hz (e.g. 38000)
+ * @param  duty_cycle  carrier duty cycle (e.g. 0.33)
+ * @return true if the signal has samples (is valid)
+ */
+bool flipper_ir_raw_finish(flipper_ir_signal_t *sig, uint32_t frequency, float duty_cycle)
+{
+	if (sig == NULL)
+		return false;
+
+	sig->raw.frequency = frequency;
+	sig->raw.duty_cycle = duty_cycle;
+	sig->valid = (sig->raw.sample_count > 0);
+
+	return sig->valid;
+}
+
+/*============================================================================*/
+/**
  * @brief  Count the number of IR signals in a .ir file without loading all data
  * @param  path  file path
  * @return signal count, or 0 on error

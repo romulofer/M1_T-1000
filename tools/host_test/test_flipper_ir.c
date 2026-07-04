@@ -264,6 +264,56 @@ static void test_create_empty_remote(void)
 	f_unlink(TEST_PATH);
 }
 
+/* Task 7: raw edge accumulator builds a signed mark/space sample stream that
+ * round-trips through the writer/reader. This is the math behind the raw learn
+ * fallback (the RX-event -> edge conversion is firmware, verified on-device). */
+static void test_raw_accumulate(void)
+{
+	flipper_ir_signal_t sig;
+	flipper_ir_signal_t got[2];
+	flipper_file_t ff;
+	uint16_t n, i;
+
+	static const uint32_t durs[]   = { 9000, 4500, 560, 560, 560, 1690 };
+	static const bool     marks[]  = { true, false, true, false, true, false };
+	static const int32_t  expect[] = { 9000, -4500, 560, -560, 560, -1690 };
+	const uint16_t ecount = 6;
+
+	printf("test_raw_accumulate\n");
+	f_unlink(TEST_PATH);
+
+	flipper_ir_raw_begin(&sig, "RawLearned");
+	for (i = 0; i < ecount; i++)
+		CHECK(flipper_ir_raw_add_edge(&sig, durs[i], marks[i]), "raw: add edge");
+	CHECK(flipper_ir_raw_finish(&sig, 38000, 0.33f), "raw: finish valid");
+
+	CHECK_EQ_INT(sig.type, FLIPPER_IR_SIGNAL_RAW, "raw: type");
+	CHECK_EQ_STR(sig.name, "RawLearned", "raw: name");
+	CHECK_EQ_INT(sig.raw.frequency, 38000, "raw: frequency");
+	CHECK_EQ_INT(sig.raw.sample_count, ecount, "raw: sample_count");
+	CHECK(memcmp(sig.raw.samples, expect, sizeof(expect)) == 0, "raw: signed samples");
+
+	/* Round-trip through the writer/reader. */
+	CHECK(ff_open_write(&ff, TEST_PATH), "raw: open_write");
+	CHECK(flipper_ir_write_header(&ff), "raw: header");
+	CHECK(flipper_ir_write_signal(&ff, &sig), "raw: write signal");
+	ff_close(&ff);
+
+	n = read_all(TEST_PATH, got, 2);
+	CHECK_EQ_INT(n, 1, "raw: reparse count");
+	CHECK_EQ_INT(got[0].raw.sample_count, ecount, "raw: reparse sample_count");
+	CHECK(memcmp(got[0].raw.samples, expect, sizeof(expect)) == 0, "raw: reparse samples");
+
+	/* Capacity guard: edges beyond FLIPPER_IR_RAW_MAX_SAMPLES are rejected. */
+	flipper_ir_raw_begin(&sig, "Full");
+	for (i = 0; i < FLIPPER_IR_RAW_MAX_SAMPLES; i++)
+		flipper_ir_raw_add_edge(&sig, 100, (i % 2) == 0);
+	CHECK(!flipper_ir_raw_add_edge(&sig, 100, true), "raw: rejects past capacity");
+	CHECK_EQ_INT(sig.raw.sample_count, FLIPPER_IR_RAW_MAX_SAMPLES, "raw: capped count");
+
+	f_unlink(TEST_PATH);
+}
+
 int main(void)
 {
 	printf("== Flipper .ir host round-trip tests ==\n");
@@ -271,6 +321,7 @@ int main(void)
 	test_append_roundtrip();
 	test_rewrite_edit();
 	test_create_empty_remote();
+	test_raw_accumulate();
 
 	printf("== %d checks, %d failures ==\n", g_checks, g_failures);
 	return (g_failures == 0) ? 0 : 1;
