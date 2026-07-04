@@ -202,4 +202,13 @@ bool nfc_mfc_key_get(uint16_t sector, char *type_out, uint8_t key_out[6]);
  */
 void nfc_poller_get_read_progress(nfc_read_progress_t *out);
 
+/**
+ * @brief Reset read progress to SCANNING/NONE at the start of a read.
+ *
+ * Called when a fresh read begins so a subsequent non-MIFARE-Classic read
+ * (NTAG/T2T/NFC-B/V) does not display a stale MFC result on completion — only
+ * the MFC path sets a non-NONE result.
+ */
+void nfc_poller_reset_read_progress(void);
+
 #endif /* NFC_POLLER_H_ */

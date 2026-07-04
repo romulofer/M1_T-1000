@@ -14,9 +14,20 @@
 #include "nfc_read_progress.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static int g_checks = 0;
 static int g_failures = 0;
+
+#define CHECK_EQ_STR(actual, expected, msg)                                    \
+	do {                                                                       \
+		g_checks++;                                                            \
+		if (strcmp((actual), (expected)) != 0) {                              \
+			g_failures++;                                                      \
+			printf("  FAIL: %s  (got \"%s\", want \"%s\")  (%s:%d)\n",         \
+			       (msg), (actual), (expected), __FILE__, __LINE__);           \
+		}                                                                      \
+	} while (0)
 
 #define CHECK_EQ_INT(actual, expected, msg)                                    \
 	do {                                                                       \
@@ -56,6 +67,32 @@ int main(void)
 	             "15/16 sectors -> PARTIAL");
 	CHECK_EQ_INT(mfc_classify_result(39, 40), NFC_RD_RESULT_PARTIAL,
 	             "39/40 sectors -> PARTIAL");
+
+	/* Completion status line builder used by the read-done screen. */
+	{
+		char buf[24];
+		nfc_read_completion_status(NFC_RD_RESULT_UID_ONLY, 0, 16, buf, sizeof(buf));
+		CHECK_EQ_STR(buf, "Read (UID only)", "UID_ONLY -> 'Read (UID only)'");
+
+		nfc_read_completion_status(NFC_RD_RESULT_FULL, 16, 16, buf, sizeof(buf));
+		CHECK_EQ_STR(buf, "Sectors 16/16", "FULL -> 'Sectors 16/16'");
+
+		nfc_read_completion_status(NFC_RD_RESULT_PARTIAL, 5, 16, buf, sizeof(buf));
+		CHECK_EQ_STR(buf, "Sectors 5/16", "PARTIAL -> 'Sectors 5/16'");
+
+		/* NONE = non-MFC read: empty so the caller keeps its default layout. */
+		nfc_read_completion_status(NFC_RD_RESULT_NONE, 0, 0, buf, sizeof(buf));
+		CHECK_EQ_STR(buf, "", "NONE -> '' (default layout preserved)");
+
+		/* Must never overflow a small 128x64-sized buffer. */
+		char small[16];
+		nfc_read_completion_status(NFC_RD_RESULT_FULL, 40, 40, small, sizeof(small));
+		g_checks++;
+		if (strlen(small) >= sizeof(small)) {
+			g_failures++;
+			printf("  FAIL: completion status overran small buffer\n");
+		}
+	}
 
 	printf("%d checks, %d failures\n", g_checks, g_failures);
 	return g_failures ? 1 : 0;

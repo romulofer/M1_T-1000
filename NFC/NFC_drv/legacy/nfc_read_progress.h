@@ -14,6 +14,7 @@
  */
 
 #include <stdint.h>
+#include <stdio.h>   /* snprintf for the completion-status builder */
 
 typedef enum {
     NFC_RD_STAGE_SCANNING = 0,   /* looking for a card (== the Ready screen) */
@@ -47,6 +48,35 @@ mfc_classify_result(uint16_t success_sectors, uint16_t total_sectors)
     if (success_sectors == 0)              return NFC_RD_RESULT_UID_ONLY;
     if (success_sectors >= total_sectors)  return NFC_RD_RESULT_FULL;
     return NFC_RD_RESULT_PARTIAL;
+}
+
+/*
+ * Build the read-view completion status line from the classified result:
+ *   UID_ONLY      -> "Read (UID only)"
+ *   FULL/PARTIAL  -> "Sectors N/M"
+ *   NONE          -> "" (non-MIFARE-Classic read: caller keeps its layout)
+ * Writes into @p out (bounded by snprintf) and returns it. Short enough for
+ * the 128x64 read-done screen.
+ */
+static inline const char *
+nfc_read_completion_status(uint8_t result, uint16_t authed_sectors,
+                           uint16_t total_sectors, char *out, unsigned out_sz)
+{
+    if (!out || out_sz == 0) return "";
+    switch (result) {
+        case NFC_RD_RESULT_UID_ONLY:
+            snprintf(out, out_sz, "Read (UID only)");
+            break;
+        case NFC_RD_RESULT_PARTIAL:
+        case NFC_RD_RESULT_FULL:
+            snprintf(out, out_sz, "Sectors %u/%u",
+                     (unsigned)authed_sectors, (unsigned)total_sectors);
+            break;
+        default:
+            out[0] = '\0';
+            break;
+    }
+    return out;
 }
 
 #endif /* NFC_READ_PROGRESS_H_ */

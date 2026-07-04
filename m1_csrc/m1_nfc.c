@@ -472,6 +472,7 @@ static void nfc_read_gui_create(uint8_t param)
 	if( param==NFC_READ_DISPLAY_PARAM_READING_READY )
 	{
 		record_stat = NFC_RECORD_IDLE;
+		nfc_poller_reset_read_progress();  // fresh read: clear any prior MFC result
 		m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
 		m1_app_send_q_message(nfc_worker_q_hdl, Q_EVENT_NFC_START_READ);
 		vTaskDelay(50);
@@ -528,15 +529,45 @@ static void nfc_read_gui_update(uint8_t param)
 			(nfc_poller_get_profile() == NFC_POLL_PROFILE_FAST_A) ? "Fast" : "Live");
 		u8g2_DrawXBMP(&m1_u8g2, 2, 14, 48, 48, nfc_read_48x48);
 		m1_draw_content_frame(&m1_u8g2, 52, 16, 72, 28);
+
+		/* Stage-specific status: the big line names the phase, the small line
+		 * shows the sector sweep (n/m) or the hold-card prompt. */
+		nfc_read_progress_t pr;
+		nfc_poller_get_read_progress(&pr);
+		char sec_line[16];
+
+		const char *big_line;
+		if ( param==NFC_READ_DISPLAY_PARAM_READING_CARD_FOUND )
+			big_line = "Card found";
+		else if ( param==NFC_READ_DISPLAY_PARAM_READING_TRYING_KEYS )
+			big_line = "Trying keys";
+		else if ( param==NFC_READ_DISPLAY_PARAM_READING_READING )
+			big_line = "Reading";
+		else
+			big_line = (nfc_poller_get_profile() == NFC_POLL_PROFILE_FAST_A) ? "Fast scan" : "Reading";
+
 		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-		m1_draw_text(&m1_u8g2, 58, 24, 60,
-			(nfc_poller_get_profile() == NFC_POLL_PROFILE_FAST_A) ? "Fast scan" : "Reading",
-			TEXT_ALIGN_LEFT);
+		m1_draw_text(&m1_u8g2, 58, 24, 60, big_line, TEXT_ALIGN_LEFT);
 		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-		m1_draw_text(&m1_u8g2, 58, 33, 60,
-			(nfc_poller_get_profile() != NFC_POLL_PROFILE_NORMAL) ? "NFC-A only" : "Hold card",
-			TEXT_ALIGN_LEFT);
-		m1_draw_text(&m1_u8g2, 58, 41, 60, "to the back", TEXT_ALIGN_LEFT);
+
+		if ( param==NFC_READ_DISPLAY_PARAM_READING_TRYING_KEYS ||
+		     param==NFC_READ_DISPLAY_PARAM_READING_READING )
+		{
+			snprintf(sec_line, sizeof(sec_line), "Sector %u/%u",
+			         (unsigned)pr.sector, (unsigned)pr.total_sectors);
+			m1_draw_text(&m1_u8g2, 58, 34, 60, sec_line, TEXT_ALIGN_LEFT);
+		}
+		else if ( param==NFC_READ_DISPLAY_PARAM_READING_CARD_FOUND )
+		{
+			m1_draw_text(&m1_u8g2, 58, 34, 60, "Please wait", TEXT_ALIGN_LEFT);
+		}
+		else
+		{
+			m1_draw_text(&m1_u8g2, 58, 33, 60,
+				(nfc_poller_get_profile() != NFC_POLL_PROFILE_NORMAL) ? "NFC-A only" : "Hold card",
+				TEXT_ALIGN_LEFT);
+			m1_draw_text(&m1_u8g2, 58, 41, 60, "to the back", TEXT_ALIGN_LEFT);
+		}
     }
     else if( param==NFC_READ_DISPLAY_PARAM_READING_COMPLETE )	// read done
     {
@@ -546,7 +577,19 @@ static void nfc_read_gui_update(uint8_t param)
 		m1_draw_content_frame(&m1_u8g2, 2, 14, 124, 35);
 		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
 		m1_draw_text(&m1_u8g2, 8, 24, 114, NFC_Type, TEXT_ALIGN_LEFT);
-		m1_draw_text(&m1_u8g2, 8, 33, 114, NFC_Family, TEXT_ALIGN_LEFT);
+
+		/* MIFARE Classic reads (result != NONE) show the dump outcome on the
+		 * middle row: "Read (UID only)" when no sector authed, else
+		 * "Sectors N/M". Non-MFC reads keep the original Family line. */
+		nfc_read_progress_t pr;
+		nfc_poller_get_read_progress(&pr);
+		char status_line[24];
+		nfc_read_completion_status(pr.result, pr.sector, pr.total_sectors,
+		                           status_line, sizeof(status_line));
+		m1_draw_text(&m1_u8g2, 8, 33, 114,
+		             (pr.result != NFC_RD_RESULT_NONE) ? status_line : NFC_Family,
+		             TEXT_ALIGN_LEFT);
+
 		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
 		m1_draw_text(&m1_u8g2, 8, 42, 114, "UID:", TEXT_ALIGN_LEFT);
 		m1_draw_text(&m1_u8g2, 30, 42, 92, NFC_UID, TEXT_ALIGN_LEFT);

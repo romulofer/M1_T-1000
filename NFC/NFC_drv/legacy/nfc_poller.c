@@ -163,6 +163,14 @@ void nfc_poller_get_read_progress(nfc_read_progress_t *out)
     *out = g_nfc_read_progress;
 }
 
+void nfc_poller_reset_read_progress(void)
+{
+    g_nfc_read_progress.stage         = NFC_RD_STAGE_SCANNING;
+    g_nfc_read_progress.result        = NFC_RD_RESULT_NONE;
+    g_nfc_read_progress.sector        = 0;
+    g_nfc_read_progress.total_sectors = 0;
+}
+
 /* Update the shared progress state and wake the read view. Non-blocking:
  * callers rate-limit to per-sector granularity, and a dropped frame just means
  * the view redraws on the next stage — the keypad path is never starved. */
