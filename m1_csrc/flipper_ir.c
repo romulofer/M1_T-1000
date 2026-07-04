@@ -632,6 +632,44 @@ flipper_ir_raw_feed_result_t flipper_ir_raw_feed(flipper_ir_signal_t *sig,
 }
 
 /*============================================================================*/
+/* Context + callback for flipper_ir_rename_signal(). */
+typedef struct {
+	uint16_t    target_index;
+	const char *new_name;
+} flipper_ir_rename_ctx_t;
+
+static bool flipper_ir_rename_cb(uint16_t index, flipper_ir_signal_t *sig, void *user)
+{
+	flipper_ir_rename_ctx_t *ctx = (flipper_ir_rename_ctx_t *)user;
+
+	if (index == ctx->target_index && ctx->new_name != NULL)
+	{
+		strncpy(sig->name, ctx->new_name, FLIPPER_IR_NAME_MAX_LEN - 1);
+		sig->name[FLIPPER_IR_NAME_MAX_LEN - 1] = '\0';
+	}
+	return true;   /* keep every signal */
+}
+
+/*============================================================================*/
+/**
+ * @brief  Rename the signal at target_index in a .ir file, preserving all other
+ *         signals. Out-of-range index leaves the file unchanged (returns true).
+ * @param  path          .ir file path
+ * @param  target_index  0-based index of the signal to rename
+ * @param  new_name      replacement name
+ * @return true on success (or harmless no-op)
+ */
+bool flipper_ir_rename_signal(const char *path, uint16_t target_index, const char *new_name)
+{
+	flipper_ir_rename_ctx_t ctx;
+
+	ctx.target_index = target_index;
+	ctx.new_name = new_name;
+
+	return flipper_ir_rewrite(path, flipper_ir_rename_cb, &ctx);
+}
+
+/*============================================================================*/
 /**
  * @brief  Count the number of IR signals in a .ir file without loading all data
  * @param  path  file path

@@ -97,6 +97,11 @@ flipper_ir_raw_feed_result_t flipper_ir_raw_feed(flipper_ir_signal_t *sig,
                                                  bool frame_end, uint16_t min_samples,
                                                  uint32_t frequency, float duty_cycle);
 
+/* Rename the signal at target_index in a .ir file, preserving every other
+ * signal's name/type/data and the file order. An out-of-range index is a no-op
+ * (still returns true). Built on flipper_ir_rewrite (stack-only, atomic). */
+bool flipper_ir_rename_signal(const char *path, uint16_t target_index, const char *new_name);
+
 /* Map Flipper protocol name string to IRMP protocol ID */
 uint8_t flipper_ir_proto_to_irmp(const char *name);
 
