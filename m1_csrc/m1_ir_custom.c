@@ -702,6 +702,13 @@ static void ir_custom_scan_buttons(const char *path)
 	ff_close(&ff);
 }
 
+/* m1_card_list label provider for the edit-screen button list. */
+static const char *ir_custom_button_list_label(void *ctx, uint16_t idx)
+{
+	(void)ctx;
+	return s_button_names[idx];
+}
+
 /*============================================================================*/
 /**
  * @brief  Draw the scrolling button list for the edit screen (title = remote
@@ -709,57 +716,38 @@ static void ir_custom_scan_buttons(const char *path)
  */
 static void ir_custom_draw_button_list(const char *name, uint16_t selection, uint16_t total)
 {
-	uint16_t start_idx;
-	uint16_t visible;
-	uint16_t i;
-	uint8_t  y;
-
-	m1_u8g2_firstpage();
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-
-	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-	u8g2_DrawStr(&m1_u8g2, 2, 10, (name != NULL) ? name : "Edit");
-	u8g2_DrawHLine(&m1_u8g2, 0, IR_CUSTOM_LIST_HEADER_H, 128);
-
-	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-
 	if (total == 0)
 	{
+		/* Empty remote: keep the "(no buttons)" placeholder + Back-only bar. */
+		m1_u8g2_firstpage();
+		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+		u8g2_DrawStr(&m1_u8g2, 2, 10, (name != NULL) ? name : "Edit");
+		u8g2_DrawHLine(&m1_u8g2, 0, IR_CUSTOM_LIST_HEADER_H, 128);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
 		u8g2_DrawStr(&m1_u8g2, 4, IR_CUSTOM_LIST_START_Y + 8, "(no buttons)");
 		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "", arrowright_8x8);
 		m1_u8g2_nextpage();
 		return;
 	}
 
-	if (selection < IR_CUSTOM_LIST_VISIBLE)
-		start_idx = 0;
-	else
-		start_idx = selection - IR_CUSTOM_LIST_VISIBLE + 1;
+	m1_card_list((name != NULL) ? name : "Edit",
+	             total, selection, IR_CUSTOM_LIST_VISIBLE,
+	             ir_custom_button_list_label, NULL, NULL,
+	             arrowleft_8x8, "Back", "Edit", arrowright_8x8);
+}
 
-	visible = total - start_idx;
-	if (visible > IR_CUSTOM_LIST_VISIBLE)
-		visible = IR_CUSTOM_LIST_VISIBLE;
+/* m1_card_list providers for the per-button action menu (Rename/Delete). */
+static const char *ir_custom_action_menu_label(void *ctx, uint16_t idx)
+{
+	(void)ctx;
+	return s_button_action_items[idx];
+}
 
-	for (i = 0; i < visible; i++)
-	{
-		uint16_t idx = start_idx + i;
-		y = IR_CUSTOM_LIST_START_Y + (i * IR_CUSTOM_LIST_ITEM_H);
-
-		if (idx == selection)
-		{
-			u8g2_DrawBox(&m1_u8g2, 0, y, 128, IR_CUSTOM_LIST_ITEM_H);
-			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
-			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_button_names[idx]);
-			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-		}
-		else
-		{
-			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_button_names[idx]);
-		}
-	}
-
-	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Edit", arrowright_8x8);
-	m1_u8g2_nextpage();
+static const uint8_t *ir_custom_action_menu_icon(void *ctx, uint16_t idx)
+{
+	(void)ctx;
+	return (idx == 0) ? pencil_8x8 : trash_8x8;  /* Rename / Delete */
 }
 
 /*============================================================================*/
@@ -768,35 +756,10 @@ static void ir_custom_draw_button_list(const char *name, uint16_t selection, uin
  */
 static void ir_custom_draw_action_menu(const char *name, uint8_t selection)
 {
-	uint8_t i;
-
-	m1_u8g2_firstpage();
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-
-	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-	u8g2_DrawStr(&m1_u8g2, 2, 10, (name != NULL) ? name : "Button");
-	u8g2_DrawHLine(&m1_u8g2, 0, IR_CUSTOM_LIST_HEADER_H, 128);
-
-	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	for (i = 0; i < IR_CUSTOM_BTN_ACTION_COUNT; i++)
-	{
-		uint8_t y = (uint8_t)(IR_CUSTOM_LIST_START_Y + (i * IR_CUSTOM_LIST_ITEM_H));
-
-		if (i == selection)
-		{
-			u8g2_DrawBox(&m1_u8g2, 0, y, 128, IR_CUSTOM_LIST_ITEM_H);
-			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
-			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_button_action_items[i]);
-			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-		}
-		else
-		{
-			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_button_action_items[i]);
-		}
-	}
-
-	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Select", arrowright_8x8);
-	m1_u8g2_nextpage();
+	m1_card_list((name != NULL) ? name : "Button",
+	             IR_CUSTOM_BTN_ACTION_COUNT, selection, IR_CUSTOM_LIST_VISIBLE,
+	             ir_custom_action_menu_label, ir_custom_action_menu_icon, NULL,
+	             arrowleft_8x8, "Back", "Select", arrowright_8x8);
 }
 
 /*============================================================================*/
