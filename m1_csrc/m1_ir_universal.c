@@ -31,6 +31,7 @@
 #include "m1_led_indicator.h"
 #include "irsnd.h"
 #include "flipper_ir.h"
+#include "m1_uremote_match.h"
 #include "ff.h"
 
 /*************************** D E F I N E S ************************************/
@@ -105,7 +106,8 @@ static void browse_directory(const char *path);
 static void show_commands(const char *ir_file_path);
 static void transmit_command(const ir_universal_cmd_t *cmd);
 static void transmit_raw_command(const ir_universal_cmd_t *cmd);
-static void ir_power_blast(const char *title, const char *const *paths, uint8_t n_paths);
+static void ir_ir_blast(const char *title, const char *const *paths, uint8_t n_paths,
+                        const char *record, const char *const *aliases);
 static void power_off_blast(void);
 static void power_off_av_blast(void);
 static void load_favorites(void);
@@ -1286,14 +1288,19 @@ static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 
 /*============================================================================*/
 /*
- * Universal power blaster (TV-B-Gone style).
+ * Filtered IR blaster (TV-B-Gone / Universal-Remotes brute force).
  *
- * Transmits every parsed power code from each of the given .ir files in
- * sequence so nearby gear switches off. Reuses the same IRMP encode/TX path
- * as transmit_command(). BACK (or LEFT) aborts mid-sequence.
+ * Transmits parsed codes from each of the given .ir files in sequence,
+ * reusing the same IRMP encode/TX path as transmit_command(). BACK (or LEFT)
+ * aborts mid-sequence.
+ *
+ *   record == NULL : send every parsed code (Power-Off / TV-B-Gone).
+ *   record != NULL : send only codes whose name matches `record` or one of
+ *                    `aliases` (case-insensitive) -- one function, every brand.
  */
 /*============================================================================*/
-static void ir_power_blast(const char *title, const char *const *paths, uint8_t n_paths)
+static void ir_ir_blast(const char *title, const char *const *paths, uint8_t n_paths,
+                        const char *record, const char *const *aliases)
 {
 	S_M1_Buttons_Status this_button_status;
 	S_M1_Main_Q_t q_item;
@@ -1308,14 +1315,34 @@ static void ir_power_blast(const char *title, const char *const *paths, uint8_t 
 		uint16_t count = parse_ir_file(paths[fi]);
 		if (count == 0)
 			continue;
+
+		/* When a target record is set, only records whose name matches it (or
+		 * one of its aliases, case-insensitively) are transmitted, and the
+		 * progress denominator reflects that filtered subset. record == NULL
+		 * (Power-Off callers) matches everything -> byte-identical send-all. */
+		uint16_t match_total = 0;
+		for (uint16_t i = 0; i < count; i++)
+		{
+			if (record == NULL ||
+			    uremote_name_matches(s_commands[i].name, record, aliases))
+				match_total++;
+		}
+		if (match_total == 0)
+			continue;
 		any = true;
 
 		/* In case any entry is a raw signal, point the raw TX at this file. */
 		strncpy(s_raw_tx_filepath, paths[fi], IR_UNIVERSAL_PATH_MAX_LEN - 1);
 		s_raw_tx_filepath[IR_UNIVERSAL_PATH_MAX_LEN - 1] = '\0';
 
+		uint16_t di = 0;  /* 1-based display index over the filtered subset */
 		for (uint16_t i = 0; i < count; i++)
 		{
+			/* Skip records that don't match the target function. */
+			if (record != NULL &&
+			    !uremote_name_matches(s_commands[i].name, record, aliases))
+				continue;
+
 			/* Non-blocking abort check */
 			if (xQueueReceive(main_q_hdl, &q_item, 0) == pdTRUE &&
 			    q_item.q_evt_type == Q_EVENT_KEYPAD)
@@ -1331,7 +1358,8 @@ static void ir_power_blast(const char *title, const char *const *paths, uint8_t 
 
 			/* Progress screen: title + current code in the status card; the
 			 * running count and BACK-to-stop affordance live in the bottom bar. */
-			snprintf(line, sizeof(line), "%u/%u", (unsigned)(i + 1), (unsigned)count);
+			di++;
+			snprintf(line, sizeof(line), "%u/%u", (unsigned)di, (unsigned)match_total);
 			u8g2_FirstPage(&m1_u8g2);
 			m1_tx_status_box(&m1_u8g2, title, s_commands[i].name, NULL);
 			m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Stop", line, NULL);
@@ -1387,18 +1415,18 @@ static void ir_power_blast(const char *title, const char *const *paths, uint8_t 
 	vTaskDelay(pdMS_TO_TICKS(1200));
 
 	xQueueReset(main_q_hdl);
-} // static void ir_power_blast(...)
+} // static void ir_ir_blast(...)
 
 static void power_off_blast(void)
 {
 	static const char *const tv_paths[] = { IR_POWER_DB_PATH };
-	ir_power_blast("Power Off TVs", tv_paths, 1);
+	ir_ir_blast("Power Off TVs", tv_paths, 1, NULL, NULL);
 }
 
 static void power_off_av_blast(void)
 {
 	static const char *const av_paths[] = { IR_AUDIO_DB_PATH, IR_PROJ_DB_PATH };
-	ir_power_blast("Power Off A/V", av_paths, 2);
+	ir_ir_blast("Power Off A/V", av_paths, 2, NULL, NULL);
 }
 
 
