@@ -528,6 +528,10 @@ static void ir_custom_draw_learn(ir_cap_state_t state, const IRMP_DATA *data, ui
 	u8g2_DrawStr(&m1_u8g2, 2, 10, "Learn Button");
 	u8g2_DrawHLine(&m1_u8g2, 0, 12, 128);
 
+	/* Status icon (top-right): target while waiting, check once captured. */
+	u8g2_DrawXBMP(&m1_u8g2, 114, 22, 10, 10,
+	              (state == IR_CAP_NONE) ? target_10x10 : check_10x10);
+
 	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
 	if (state == IR_CAP_PARSED && data != NULL)
 	{
@@ -801,6 +805,8 @@ static bool ir_custom_confirm(const char *l1, const char *l2)
 
 	m1_u8g2_firstpage();
 	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+	/* Warning icon (top-right) flags the destructive confirm. */
+	u8g2_DrawXBMP(&m1_u8g2, 114, 14, 10, 10, error_10x10);
 	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
 	if (l1 != NULL)
 		u8g2_DrawStr(&m1_u8g2, 4, 24, l1);
