@@ -865,7 +865,7 @@ void badusb_run(void)
     /* Check SD card */
     if (m1_sdcard_get_status() != SD_access_OK)
     {
-        m1_message_box(&m1_u8g2, "BadUSB", "SD card not", "available", " OK ");
+        m1_message_box(&m1_u8g2, "BadUSB", "SD card not available", NULL, " OK ");
         return;
     }
 
@@ -962,11 +962,11 @@ void badusb_run(void)
                 /* Show result */
                 if (ok)
                 {
-                    m1_message_box(&m1_u8g2, "BadUSB", "Script", "complete", " OK ");
+                    m1_message_box(&m1_u8g2, "BadUSB", "Script complete", NULL, " OK ");
                 }
                 else
                 {
-                    m1_message_box(&m1_u8g2, "BadUSB", "Script", "error", " OK ");
+                    m1_message_box(&m1_u8g2, "BadUSB", "Script error", NULL, " OK ");
                 }
             }
 
@@ -1036,7 +1036,7 @@ void badusb_os_detect(void)
     if (!enumerated)
     {
         m1_usb_switch_to_normal();
-        m1_message_box(&m1_u8g2, "OS Detect", "No host", "detected", " OK ");
+        m1_message_box(&m1_u8g2, "OS Detect", "No host detected", NULL, " OK ");
         return;
     }
 
@@ -1309,7 +1309,7 @@ void badusb_payload_library(void)
             if (pl_count == 0)
             {
                 m1_message_box(&m1_u8g2, payload_categories[sel],
-                               "No payloads", "found", " OK ");
+                               "No payloads found", NULL, " OK ");
                 badusb_draw_list("Payloads", payload_categories, PAYLOAD_NUM_CATS, sel);
                 continue;
             }
@@ -1406,9 +1406,9 @@ void badusb_payload_library(void)
                     {
                         bool ok = badusb_execute_file(pl_paths[pl_sel]);
                         if (ok)
-                            m1_message_box(&m1_u8g2, "Payload", "Script", "complete", " OK ");
+                            m1_message_box(&m1_u8g2, "Payload", "Script complete", NULL, " OK ");
                         else
-                            m1_message_box(&m1_u8g2, "Payload", "Script", "error", " OK ");
+                            m1_message_box(&m1_u8g2, "Payload", "Script error", NULL, " OK ");
                     }
 
                     /* Redraw file list */

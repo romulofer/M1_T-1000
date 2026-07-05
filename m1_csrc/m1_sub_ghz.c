@@ -4562,7 +4562,7 @@ static uint8_t sub_ghz_replay_start(bool record_mode, S_M1_SubGHz_Band band, uin
 		ret_code = 1;
 		record_mode = 0;
 		m1_buzzer_notification();
-		m1_message_box(&m1_u8g2, "TX Blocked:", "Region restricts", "this frequency.", "Set Region to Off");
+		m1_message_box(&m1_u8g2, "TX Blocked:", "Region restricts this frequency.", NULL, "Set Region to Off");
 	} // if ( sub_ghz_fcc_ism_band_check(band, channel) )
 
 	if ( record_mode )

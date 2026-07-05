@@ -872,7 +872,7 @@ void badbt_run(void)
 
     if ( !get_esp32_main_init_status() )
     {
-        m1_message_box(&m1_u8g2, "Bad-BT", "ESP32 not", "ready", " OK ");
+        m1_message_box(&m1_u8g2, "Bad-BT", "ESP32 not ready", NULL, " OK ");
         return;
     }
 
@@ -893,7 +893,7 @@ void badbt_run(void)
     {
         ble_hid_deinit(&badbt_req);
         if (!badbt_state.connected)
-            m1_message_box(&m1_u8g2, "Bad-BT", "Connection", "timeout", " OK ");
+            m1_message_box(&m1_u8g2, "Bad-BT", "Connection timeout", NULL, " OK ");
         return;
     }
 
@@ -906,7 +906,7 @@ void badbt_run(void)
     if (m1_sdcard_get_status() != SD_access_OK)
     {
         ble_hid_deinit(&badbt_req);
-        m1_message_box(&m1_u8g2, "Bad-BT", "SD card not", "available", " OK ");
+        m1_message_box(&m1_u8g2, "Bad-BT", "SD card not available", NULL, " OK ");
         return;
     }
 
@@ -988,9 +988,9 @@ void badbt_run(void)
             {
                 bool ok = badbt_execute_file(filepath);
                 if (ok)
-                    m1_message_box(&m1_u8g2, "Bad-BT", "Script", "complete", " OK ");
+                    m1_message_box(&m1_u8g2, "Bad-BT", "Script complete", NULL, " OK ");
                 else
-                    m1_message_box(&m1_u8g2, "Bad-BT", "Script", "error", " OK ");
+                    m1_message_box(&m1_u8g2, "Bad-BT", "Script error", NULL, " OK ");
             }
 
             /* Return to BadUSB folder — full reinit for clean state */

@@ -4539,7 +4539,7 @@ static void nfc_show_recovered_keys(void)
 
 	if (total == 0U)
 	{
-		m1_message_box(&m1_u8g2, "Recovered Keys", "Read a MFC card", "first", "BACK to return");
+		m1_message_box(&m1_u8g2, "Recovered Keys", "Read a MFC card first", NULL, "BACK to return");
 		return;
 	}
 
