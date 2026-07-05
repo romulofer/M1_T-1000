@@ -1125,12 +1125,7 @@ static void transmit_command(const ir_universal_cmd_t *cmd)
 	if (cmd->protocol == IRMP_UNKNOWN_PROTOCOL)
 	{
 		u8g2_FirstPage(&m1_u8g2);
-		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-		u8g2_DrawStr(&m1_u8g2, 10, 15, "Unsupported");
-		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-		u8g2_DrawStr(&m1_u8g2, 10, 30, "Protocol not recognized");
-		u8g2_DrawStr(&m1_u8g2, 10, 45, cmd->name);
+		m1_tx_status_box(&m1_u8g2, "Unsupported", "Protocol not recognized", cmd->name);
 		m1_u8g2_nextpage();
 		vTaskDelay(pdMS_TO_TICKS(1500));
 		return;
@@ -1140,14 +1135,9 @@ static void transmit_command(const ir_universal_cmd_t *cmd)
 	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
 
 	/* Show transmitting screen */
-	u8g2_FirstPage(&m1_u8g2);
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-	u8g2_DrawStr(&m1_u8g2, 10, 15, "Transmitting...");
-	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	u8g2_DrawStr(&m1_u8g2, 10, 30, cmd->name);
 	snprintf(tx_info, sizeof(tx_info), "Addr:0x%04X Cmd:0x%04X", cmd->address, cmd->command);
-	u8g2_DrawStr(&m1_u8g2, 4, 45, tx_info);
+	u8g2_FirstPage(&m1_u8g2);
+	m1_tx_status_box(&m1_u8g2, "Transmitting...", cmd->name, tx_info);
 	m1_u8g2_nextpage();
 
 	/* Set up IRMP_DATA for transmission */
@@ -1197,9 +1187,7 @@ static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 	if (!flipper_ir_open(&ff, s_raw_tx_filepath))
 	{
 		u8g2_FirstPage(&m1_u8g2);
-		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-		u8g2_DrawStr(&m1_u8g2, 10, 30, "File read error");
+		m1_tx_status_box(&m1_u8g2, "File read error", NULL, NULL);
 		m1_u8g2_nextpage();
 		vTaskDelay(pdMS_TO_TICKS(1000));
 		return;
@@ -1220,9 +1208,7 @@ static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 	if (!found || s_raw_tx_signal.raw.sample_count == 0)
 	{
 		u8g2_FirstPage(&m1_u8g2);
-		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-		u8g2_DrawStr(&m1_u8g2, 10, 30, "Signal not found");
+		m1_tx_status_box(&m1_u8g2, "Signal not found", NULL, NULL);
 		m1_u8g2_nextpage();
 		vTaskDelay(pdMS_TO_TICKS(1000));
 		return;
@@ -1231,16 +1217,11 @@ static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 	/* Show transmitting screen */
 	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
 
-	u8g2_FirstPage(&m1_u8g2);
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-	u8g2_DrawStr(&m1_u8g2, 10, 15, "Transmitting...");
-	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	u8g2_DrawStr(&m1_u8g2, 10, 30, cmd->name);
 	snprintf(tx_info, sizeof(tx_info), "Raw %luHz %u smp",
 	         (unsigned long)s_raw_tx_signal.raw.frequency,
 	         (unsigned)s_raw_tx_signal.raw.sample_count);
-	u8g2_DrawStr(&m1_u8g2, 4, 45, tx_info);
+	u8g2_FirstPage(&m1_u8g2);
+	m1_tx_status_box(&m1_u8g2, "Transmitting...", cmd->name, tx_info);
 	m1_u8g2_nextpage();
 
 	/* Convert Flipper raw data to OTA buffer format.
