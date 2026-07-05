@@ -61,6 +61,31 @@ All edits use an atomic read-all → temp-file → rename rewrite, so an interru
 edit never corrupts the original file. Every other button's name, type, data, and
 order are preserved exactly.
 
+## On-screen presentation
+
+The manager, menus, and editor share one **rounded-card list** renderer
+(`m1_card_list`): the selected row is a filled rounded card, rows may carry a
+left 8×8 icon, and a proportional scroll thumb appears on the right when the list
+overflows. Action rows are iconed where a glyph is meaningful — **Play** (play),
+**Edit**/**Rename** (pencil), **Delete** (trash); rows with no natural icon
+(remote names, button names, Learn) are left blank but stay aligned. The Learn
+screen shows a target icon while waiting and a check once a signal is captured;
+the Delete prompt carries a warning icon.
+
+Transmit and status screens share one centered **status card**
+(`m1_tx_status_box`): a bold title over up to two body lines, auto-truncated to
+fit the 128×64 frame. It backs the "Transmitting…" screen (button name +
+`Addr/Cmd`), the Unsupported / file-error / not-found toasts, and the power-blast
+progress and summary screens (the running count and BACK-to-stop affordance stay
+in the bottom bar).
+
+> The icon **button panel** (a grid playback view mapping named buttons to fixed
+> keys) is planned but not yet in the firmware; **Play Buttons** currently uses
+> the scrolling card list, which reaches every button regardless of name.
+
+Both renderers are thin wrappers over host-tested pure-geometry helpers
+(`m1_card_list_layout`, `m1_tx_status_layout`) — see *Host validation*.
+
 ## Limits
 
 - Up to 64 buttons are listed per remote in the editor.
@@ -71,12 +96,17 @@ order are preserved exactly.
 
 ## Host validation
 
-The `.ir` file layer is covered by host round-trip tests and a validator:
+The `.ir` file layer is covered by host round-trip tests and a validator, and
+the UI geometry helpers by a pure-geometry test — all run without hardware:
 
 ```
-sh tools/host_test/run_tests.sh   # append / rewrite / rename / delete / raw
+sh tools/host_test/run_tests.sh   # please-wait + Custom Remotes UI geometry +
+                                  # .ir round-trip (append/rename/delete/raw) + subghz
 sh tools/host_test/validate.sh    # unit suite + validate every shipped .ir
 ```
+
+`test_remotes_ui` asserts the card-list scroll-window / row / scrollbar math and
+the tx-status card centering and line stacking all stay within 128×64.
 
 `validate.sh` also parses every file in `ir_database/`, the same check applied to
 M1-authored output (valid header + at least one parseable signal).
