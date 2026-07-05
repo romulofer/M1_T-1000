@@ -176,6 +176,7 @@ static void power_off_blast(void);
 static void power_off_av_blast(void);
 static void universal_remotes_screen(void);
 static void uremote_panel_loop(const uremote_category_t *cat);
+static void uremote_scan_present(const uremote_category_t *cat, uint8_t *muted, uint8_t n);
 static void load_favorites(void);
 static void save_favorites(void);
 static void add_to_recent(const char *path);
@@ -1357,22 +1358,118 @@ static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 
 /*============================================================================*/
 /*
+ * One step of a blast sequence: non-blocking abort check, progress card, LED
+ * blink, and transmit. Returns true if the user pressed BACK/LEFT to abort
+ * (nothing transmitted that step). *sent is incremented on a transmitted code.
+ * Shared verbatim by the send-all and single-function blasts.
+ */
+/*============================================================================*/
+static bool ir_blast_step(const char *title, const ir_universal_cmd_t *cmd,
+                          uint16_t idx1, uint16_t total, uint16_t *sent)
+{
+	S_M1_Buttons_Status this_button_status;
+	S_M1_Main_Q_t q_item;
+	char line[28];
+
+	/* Non-blocking abort check */
+	if (xQueueReceive(main_q_hdl, &q_item, 0) == pdTRUE &&
+	    q_item.q_evt_type == Q_EVENT_KEYPAD)
+	{
+		xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+		if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK ||
+		    this_button_status.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
+			return true;
+	}
+
+	/* Progress screen: title + current code in the status card; the running
+	 * count and BACK-to-stop affordance live in the bottom bar. */
+	snprintf(line, sizeof(line), "%u/%u", (unsigned)idx1, (unsigned)total);
+	u8g2_FirstPage(&m1_u8g2);
+	m1_tx_status_box(&m1_u8g2, title, cmd->name, NULL);
+	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Stop", line, NULL);
+	m1_u8g2_nextpage();
+
+	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
+
+	/* Transmit this code (mirrors transmit_command()'s parsed-signal path) */
+	if (cmd->is_raw)
+	{
+		transmit_raw_command(cmd);
+	}
+	else if (cmd->protocol != IRMP_UNKNOWN_PROTOCOL)
+	{
+		s_tx_irmp_data.protocol = cmd->protocol;
+		s_tx_irmp_data.address  = cmd->address;
+		s_tx_irmp_data.command  = cmd->command;
+		s_tx_irmp_data.flags    = cmd->flags;
+
+		infrared_encode_sys_init();
+		irsnd_generate_tx_data(s_tx_irmp_data);
+		infrared_transmit(1);
+		infrared_transmit(0);
+	}
+
+	(*sent)++;
+	/* Let the frame finish before sending the next code */
+	vTaskDelay(pdMS_TO_TICKS(220));
+	return false;
+}
+
+/*============================================================================*/
+/*
+ * Stream `path` and count records whose name matches `record`/`aliases`
+ * (case-insensitive). O(1) memory -- used for the single-function progress
+ * denominator so aggregated files larger than the s_commands cap are handled.
+ */
+/*============================================================================*/
+static uint16_t ir_blast_count_matches(const char *path, const char *record,
+                                       const char *const *aliases)
+{
+	flipper_file_t ff;
+	ir_universal_cmd_t cmd;
+	uint16_t n = 0;
+
+	if (!ff_open(&ff, path))
+		return 0;
+	if (!ff_validate_header(&ff, "IR signals file", 1))
+	{
+		ff_close(&ff);
+		return 0;
+	}
+	for (;;)
+	{
+		if (!parse_ir_signal_block(&ff, &cmd))
+		{
+			if (ff.eof)
+				break;
+			continue;
+		}
+		if (uremote_name_matches(cmd.name, record, aliases))
+			n++;
+	}
+	ff_close(&ff);
+	return n;
+}
+
+/*============================================================================*/
+/*
  * Filtered IR blaster (TV-B-Gone / Universal-Remotes brute force).
  *
  * Transmits parsed codes from each of the given .ir files in sequence,
  * reusing the same IRMP encode/TX path as transmit_command(). BACK (or LEFT)
  * aborts mid-sequence.
  *
- *   record == NULL : send every parsed code (Power-Off / TV-B-Gone).
+ *   record == NULL : send every parsed code (Power-Off / TV-B-Gone). Bounded
+ *                    parse into s_commands -- byte-identical to the original.
  *   record != NULL : send only codes whose name matches `record` or one of
  *                    `aliases` (case-insensitive) -- one function, every brand.
+ *                    Streamed record-by-record so files larger than the
+ *                    s_commands cap (e.g. tv.ir) are fully covered.
  */
 /*============================================================================*/
 static void ir_ir_blast(const char *title, const char *const *paths, uint8_t n_paths,
                         const char *record, const char *const *aliases)
 {
-	S_M1_Buttons_Status this_button_status;
-	S_M1_Main_Q_t q_item;
 	char line[28];
 	uint16_t sent = 0;
 	bool aborted = false;
@@ -1381,82 +1478,70 @@ static void ir_ir_blast(const char *title, const char *const *paths, uint8_t n_p
 
 	for (fi = 0; fi < n_paths && !aborted; fi++)
 	{
-		uint16_t count = parse_ir_file(paths[fi]);
-		if (count == 0)
-			continue;
-
-		/* When a target record is set, only records whose name matches it (or
-		 * one of its aliases, case-insensitively) are transmitted, and the
-		 * progress denominator reflects that filtered subset. record == NULL
-		 * (Power-Off callers) matches everything -> byte-identical send-all. */
-		uint16_t match_total = 0;
-		for (uint16_t i = 0; i < count; i++)
-		{
-			if (record == NULL ||
-			    uremote_name_matches(s_commands[i].name, record, aliases))
-				match_total++;
-		}
-		if (match_total == 0)
-			continue;
-		any = true;
+		const char *path = paths[fi];
 
 		/* In case any entry is a raw signal, point the raw TX at this file. */
-		strncpy(s_raw_tx_filepath, paths[fi], IR_UNIVERSAL_PATH_MAX_LEN - 1);
-		s_raw_tx_filepath[IR_UNIVERSAL_PATH_MAX_LEN - 1] = '\0';
-
-		uint16_t di = 0;  /* 1-based display index over the filtered subset */
-		for (uint16_t i = 0; i < count; i++)
+		if (record == NULL)
 		{
-			/* Skip records that don't match the target function. */
-			if (record != NULL &&
-			    !uremote_name_matches(s_commands[i].name, record, aliases))
+			uint16_t count = parse_ir_file(path);
+			if (count == 0)
 				continue;
+			any = true;
 
-			/* Non-blocking abort check */
-			if (xQueueReceive(main_q_hdl, &q_item, 0) == pdTRUE &&
-			    q_item.q_evt_type == Q_EVENT_KEYPAD)
+			strncpy(s_raw_tx_filepath, path, IR_UNIVERSAL_PATH_MAX_LEN - 1);
+			s_raw_tx_filepath[IR_UNIVERSAL_PATH_MAX_LEN - 1] = '\0';
+
+			for (uint16_t i = 0; i < count; i++)
 			{
-				xQueueReceive(button_events_q_hdl, &this_button_status, 0);
-				if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK ||
-				    this_button_status.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
+				if (ir_blast_step(title, &s_commands[i],
+				                  (uint16_t)(i + 1), count, &sent))
 				{
 					aborted = true;
 					break;
 				}
 			}
+		}
+		else
+		{
+			/* Two streaming passes: count matches, then send. */
+			uint16_t match_total = ir_blast_count_matches(path, record, aliases);
+			if (match_total == 0)
+				continue;
+			any = true;
 
-			/* Progress screen: title + current code in the status card; the
-			 * running count and BACK-to-stop affordance live in the bottom bar. */
-			di++;
-			snprintf(line, sizeof(line), "%u/%u", (unsigned)di, (unsigned)match_total);
-			u8g2_FirstPage(&m1_u8g2);
-			m1_tx_status_box(&m1_u8g2, title, s_commands[i].name, NULL);
-			m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Stop", line, NULL);
-			m1_u8g2_nextpage();
+			strncpy(s_raw_tx_filepath, path, IR_UNIVERSAL_PATH_MAX_LEN - 1);
+			s_raw_tx_filepath[IR_UNIVERSAL_PATH_MAX_LEN - 1] = '\0';
 
-			m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
-
-			/* Transmit this code (mirrors transmit_command()'s parsed-signal path) */
-			if (s_commands[i].is_raw)
+			flipper_file_t ff;
+			if (!ff_open(&ff, path))
+				continue;
+			if (!ff_validate_header(&ff, "IR signals file", 1))
 			{
-				transmit_raw_command(&s_commands[i]);
-			}
-			else if (s_commands[i].protocol != IRMP_UNKNOWN_PROTOCOL)
-			{
-				s_tx_irmp_data.protocol = s_commands[i].protocol;
-				s_tx_irmp_data.address  = s_commands[i].address;
-				s_tx_irmp_data.command  = s_commands[i].command;
-				s_tx_irmp_data.flags    = s_commands[i].flags;
-
-				infrared_encode_sys_init();
-				irsnd_generate_tx_data(s_tx_irmp_data);
-				infrared_transmit(1);
-				infrared_transmit(0);
+				ff_close(&ff);
+				continue;
 			}
 
-			sent++;
-			/* Let the frame finish before sending the next code */
-			vTaskDelay(pdMS_TO_TICKS(220));
+			ir_universal_cmd_t cmd;
+			uint16_t di = 0;  /* 1-based display index over the filtered subset */
+			while (!aborted)
+			{
+				if (!parse_ir_signal_block(&ff, &cmd))
+				{
+					if (ff.eof)
+						break;
+					continue;   /* skip unparseable block */
+				}
+				if (!uremote_name_matches(cmd.name, record, aliases))
+					continue;
+
+				di++;
+				if (ir_blast_step(title, &cmd, di, match_total, &sent))
+				{
+					aborted = true;
+					break;
+				}
+			}
+			ff_close(&ff);
 		}
 	}
 
@@ -1467,8 +1552,12 @@ static void ir_ir_blast(const char *title, const char *const *paths, uint8_t n_p
 	if (!any)
 	{
 		u8g2_FirstPage(&m1_u8g2);
-		m1_tx_status_box(&m1_u8g2, "No power codes",
-		                 "Copy ir_database to", "the SD card IR/ folder");
+		if (record == NULL)
+			m1_tx_status_box(&m1_u8g2, "No power codes",
+			                 "Copy ir_database to", "the SD card IR/ folder");
+		else
+			m1_tx_status_box(&m1_u8g2, "No signal",
+			                 "No matching codes", "in this file");
 		m1_u8g2_nextpage();
 		vTaskDelay(pdMS_TO_TICKS(1800));
 		xQueueReset(main_q_hdl);
@@ -1515,6 +1604,7 @@ static void uremote_panel_loop(const uremote_category_t *cat)
 	BaseType_t ret;
 	const uint8_t *icons[UREMOTE_MAX_FNS];
 	const char    *captions[UREMOTE_MAX_FNS];
+	uint8_t  muted[UREMOTE_MAX_FNS];
 	uint16_t sel = 0;
 	uint8_t  i;
 	uint8_t  n = cat->n_fns;
@@ -1528,10 +1618,13 @@ static void uremote_panel_loop(const uremote_category_t *cat)
 		captions[i] = cat->fns[i].label;
 	}
 
+	/* One streaming pass marks functions with no matching code as muted. */
+	uremote_scan_present(cat, muted, n);
+
 	for (;;)
 	{
 		u8g2_FirstPage(&m1_u8g2);
-		m1_uremote_panel(&m1_u8g2, cat->label, icons, captions, NULL, n, sel);
+		m1_uremote_panel(&m1_u8g2, cat->label, icons, captions, muted, n, sel);
 		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Send", NULL);
 		m1_u8g2_nextpage();
 
@@ -1569,10 +1662,63 @@ static void uremote_panel_loop(const uremote_category_t *cat)
 		}
 		else if (this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
 		{
-			/* Filtered single-function blast is wired in Task 6. */
+			/* Blast the selected function across every brand in the file.
+			 * Muted (no-signal) cells never emit. */
+			if (sel < n && !muted[sel])
+			{
+				const char *paths[1];
+				paths[0] = cat->file;
+				ir_ir_blast(cat->label, paths, 1,
+				            cat->fns[sel].record, cat->fns[sel].aliases);
+			}
 		}
 	}
 } // static void uremote_panel_loop(...)
+
+/*============================================================================*/
+/*
+ * Universal Remotes: mark which functions have at least one matching code in
+ * the category file. A single streaming pass (O(1) memory) sets muted[j]=0 for
+ * every function j found, muted[j]=1 otherwise -- the renderer strikes muted
+ * cells and OK on them is a no-op.
+ */
+/*============================================================================*/
+static void uremote_scan_present(const uremote_category_t *cat, uint8_t *muted, uint8_t n)
+{
+	flipper_file_t ff;
+	ir_universal_cmd_t cmd;
+	uint8_t j;
+
+	for (j = 0; j < n; j++)
+		muted[j] = 1;   /* assume no signal until a matching record is found */
+
+	if (!ff_open(&ff, cat->file))
+		return;
+	if (!ff_validate_header(&ff, "IR signals file", 1))
+	{
+		ff_close(&ff);
+		return;
+	}
+	for (;;)
+	{
+		if (!parse_ir_signal_block(&ff, &cmd))
+		{
+			if (ff.eof)
+				break;
+			continue;
+		}
+		for (j = 0; j < n; j++)
+		{
+			if (muted[j] &&
+			    uremote_name_matches(cmd.name, cat->fns[j].record, cat->fns[j].aliases))
+			{
+				muted[j] = 0;
+				break;
+			}
+		}
+	}
+	ff_close(&ff);
+} // static void uremote_scan_present(...)
 
 /*============================================================================*/
 /*
