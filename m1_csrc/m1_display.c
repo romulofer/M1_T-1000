@@ -27,6 +27,8 @@
 #include "m1_please_wait_layout.h"
 #include "m1_card_list_layout.h"
 #include "m1_tx_status_layout.h"
+#include "m1_uremote_layout.h"
+#include "m1_uremote_icons.h"
 #include "m1_sdcard.h"
 #include "m1_wifi.h"
 #include "m1_system.h"
@@ -1103,6 +1105,71 @@ void m1_tx_status_box(u8g2_t *u8g2, const char *title,
 	u8g2_SetFont(u8g2, M1_DISP_FUNC_MENU_FONT_N);
 	for (i = 1; i < n; i++)
 		u8g2_DrawStr(u8g2, L.line_x[i], L.line_baseline[i], drawn[i]);
+
+	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+}
+
+/* Universal Remotes icon panel: a titled 2-column grid of remote-key cells.
+ * Thin wrapper over the host-tested geometry in m1_uremote_layout: draws the
+ * title + underline, then each visible cell's icon + caption with the selected
+ * cell highlighted. `icons`/`captions` are indexed by absolute function index;
+ * `muted` (may be NULL) marks no-signal functions, struck through. Overlay only
+ * -- the caller owns firstpage/nextpage and the bottom action bar. */
+void m1_uremote_panel(u8g2_t *u8g2, const char *title,
+                      const uint8_t *const *icons,
+                      const char *const *captions,
+                      const uint8_t *muted,
+                      uint16_t count, uint16_t selection)
+{
+	uint16_t top = m1_uremote_scroll_top(count, selection);
+	uint16_t idx;
+
+	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+
+	/* Title + underline (mirrors draw_list_screen's header). */
+	u8g2_SetFont(u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(u8g2, 2, 10, title);
+	u8g2_DrawHLine(u8g2, 0, M1_UREMOTE_HEADER_H, M1_UREMOTE_DISP_W);
+
+	u8g2_SetFont(u8g2, M1_DISP_FUNC_MENU_FONT_N);
+
+	for (idx = top;
+	     idx < count && idx < (uint16_t)(top + M1_UREMOTE_VISIBLE_CELLS);
+	     idx++)
+	{
+		S_M1_Uremote_Cell c;
+		const uint8_t *icon = (icons != NULL) ? icons[idx] : NULL;
+		const char    *cap  = (captions != NULL) ? captions[idx] : NULL;
+		int            is_muted = (muted != NULL) ? (muted[idx] != 0) : 0;
+
+		if (!m1_uremote_cell_rect(idx, top, selection, &c))
+			continue;
+
+		if (c.selected)
+		{
+			/* Filled highlight; contents drawn in background color. */
+			u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+			u8g2_DrawRBox(u8g2, c.x, c.y, c.w, c.h, M1_UREMOTE_RADIUS);
+			u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_BG);
+		}
+		else
+		{
+			u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+		}
+
+		if (icon != NULL)
+			u8g2_DrawXBMP(u8g2, c.icon_x, c.icon_y,
+			              M1_UREMOTE_ICON_W, M1_UREMOTE_ICON_H, icon);
+		if (cap != NULL)
+			u8g2_DrawStr(u8g2, c.label_x, c.label_baseline, cap);
+
+		/* No-signal functions read as unavailable via a strike line. */
+		if (is_muted)
+			u8g2_DrawHLine(u8g2, c.label_x, (u8g2_uint_t)(c.y + c.h / 2),
+			               (u8g2_uint_t)(c.x + c.w - c.label_x - 1));
+
+		u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+	}
 
 	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
 }

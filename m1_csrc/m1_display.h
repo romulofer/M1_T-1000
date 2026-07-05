@@ -205,6 +205,16 @@ void m1_card_list(const char *title,
  * Long strings are truncated to fit the 128x64 frame. See m1_tx_status_layout.h. */
 void m1_tx_status_box(u8g2_t *u8g2, const char *title,
                       const char *line1, const char *line2);
+
+/* Universal Remotes icon panel: titled 2-column scroll grid of remote-key
+ * cells. icons/captions are indexed by absolute function index; muted (may be
+ * NULL) marks no-signal functions. Overlay only -- the caller owns
+ * firstpage/nextpage and the bottom action bar. See m1_uremote_layout.h. */
+void m1_uremote_panel(u8g2_t *u8g2, const char *title,
+                      const uint8_t *const *icons,
+                      const char *const *captions,
+                      const uint8_t *muted,
+                      uint16_t count, uint16_t selection);
 uint8_t m1_message_box(u8g2_t *u8g2, const char *title1, const char *title2, const char *title3, const char *buttons);
 uint8_t m1_message_box_choice(u8g2_t *u8g2, const char *title1, const char *title2, const char *title3, const char *buttons);
 void m1_draw_bottom_bar(u8g2_t *u8g2, const uint8_t *lbitmap, const char *ltext, const char *rtext, const uint8_t *rbitmap);
