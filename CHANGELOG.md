@@ -5,6 +5,22 @@ All notable changes to the M1 T-1000 firmware will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Sub-GHz → Record: live RSSI level bar with a noise-floor threshold mark.**
+  The record view now shows, at a glance, whether the radio is hearing signal
+  or silence:
+  - A full-width **RSSI bar** with a static noise-floor **threshold tick** and a
+    numeric **dBm** readout, live on both the **READY** (pre-scan) and **ACTIVE**
+    (recording) screens.
+  - On READY the radio listens in RX (no SD writer) so the bar tracks the
+    selected frequency **before** you arm a recording; changing band/frequency
+    re-tunes the pre-scan, and pressing OK hands the radio to the recording path.
+  - On ACTIVE the bar refreshes on a ~10 Hz timer so it moves during silence,
+    not only when samples flush to SD or a protocol decodes. Decoded
+    protocol/key/bits/dBm/TE still display, and the decode beep is unchanged.
+  - Screen-only and additive: the capture → save → replay flow and the
+    `.sgh`/`.sub` output are untouched. The dBm→bar mapping is a pure helper with
+    host unit tests (`tools/host_test/test_subghz_rssi.c`).
+  - See `documentation/subghz_rssi_bar.md`.
 - **Infrared → Custom Remotes: build, learn, replay, and edit custom IR
   remotes on-device.** User remotes are standard Flipper `.ir` files at
   `0:/IR/*.ir`:
