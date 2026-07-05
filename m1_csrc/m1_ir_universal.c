@@ -1329,16 +1329,12 @@ static void ir_power_blast(const char *title, const char *const *paths, uint8_t 
 				}
 			}
 
-			/* Progress screen */
+			/* Progress screen: title + current code in the status card; the
+			 * running count and BACK-to-stop affordance live in the bottom bar. */
+			snprintf(line, sizeof(line), "%u/%u", (unsigned)(i + 1), (unsigned)count);
 			u8g2_FirstPage(&m1_u8g2);
-			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-			u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-			u8g2_DrawStr(&m1_u8g2, 12, 16, title);
-			u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-			snprintf(line, sizeof(line), "Sending %u/%u", (unsigned)(i + 1), (unsigned)count);
-			u8g2_DrawStr(&m1_u8g2, 6, 32, line);
-			u8g2_DrawStr(&m1_u8g2, 6, 44, s_commands[i].name);
-			u8g2_DrawStr(&m1_u8g2, 6, 60, "BACK to stop");
+			m1_tx_status_box(&m1_u8g2, title, s_commands[i].name, NULL);
+			m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Stop", line, NULL);
 			m1_u8g2_nextpage();
 
 			m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
@@ -1374,12 +1370,8 @@ static void ir_power_blast(const char *title, const char *const *paths, uint8_t 
 	if (!any)
 	{
 		u8g2_FirstPage(&m1_u8g2);
-		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-		u8g2_DrawStr(&m1_u8g2, 12, 18, "No power codes");
-		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-		u8g2_DrawStr(&m1_u8g2, 4, 36, "Copy ir_database to");
-		u8g2_DrawStr(&m1_u8g2, 4, 48, "the SD card IR/ folder");
+		m1_tx_status_box(&m1_u8g2, "No power codes",
+		                 "Copy ir_database to", "the SD card IR/ folder");
 		m1_u8g2_nextpage();
 		vTaskDelay(pdMS_TO_TICKS(1800));
 		xQueueReset(main_q_hdl);
@@ -1387,13 +1379,9 @@ static void ir_power_blast(const char *title, const char *const *paths, uint8_t 
 	}
 
 	/* Result screen */
-	u8g2_FirstPage(&m1_u8g2);
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-	u8g2_DrawStr(&m1_u8g2, 18, 28, aborted ? "Stopped" : "Done");
-	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
 	snprintf(line, sizeof(line), "%u codes sent", (unsigned)sent);
-	u8g2_DrawStr(&m1_u8g2, 18, 44, line);
+	u8g2_FirstPage(&m1_u8g2);
+	m1_tx_status_box(&m1_u8g2, aborted ? "Stopped" : "Done", line, NULL);
 	m1_u8g2_nextpage();
 	m1_buzzer_notification();
 	vTaskDelay(pdMS_TO_TICKS(1200));
