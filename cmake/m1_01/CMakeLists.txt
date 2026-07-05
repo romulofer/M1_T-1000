@@ -428,6 +428,7 @@ target_sources(m1_01 INTERFACE
     ../../m1_csrc/m1_display.c
     ../../m1_csrc/m1_display_data.c
     ../../m1_csrc/m1_please_wait_layout.c
+    ../../m1_csrc/m1_msgbox_layout.c
     ../../m1_csrc/m1_esp32_fw_update.c
     ../../m1_csrc/m1_esp32_hal.c
     ../../m1_csrc/m1_diag.c
