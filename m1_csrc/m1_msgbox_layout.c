@@ -81,19 +81,24 @@ int m1_msgbox_wrap(const char *s, int max_width,
 	return count;
 }
 
-/* TODO(Task 2): flow the three segments. Stub returns 0 so the host test
- * starts RED. */
 int m1_msgbox_layout(const char *title1, const char *title2, const char *title3,
                      int max_width, m1_msgbox_measure_fn measure, void *ctx,
                      m1_msgbox_line_t *out, int max_lines)
 {
-	(void)title1;
-	(void)title2;
-	(void)title3;
-	(void)max_width;
-	(void)measure;
-	(void)ctx;
-	(void)out;
-	(void)max_lines;
-	return 0;
+	const char *segs[3];
+	segs[0] = title1;
+	segs[1] = title2;
+	segs[2] = title3;
+
+	int count = 0;
+	for (int s = 0; s < 3; s++) {
+		/* Each non-empty segment begins on a fresh line: m1_msgbox_wrap always
+		 * starts a new line at `count`, so sequential calls flow the segments in
+		 * order without bleeding one into the next. Empty / NULL segments emit
+		 * nothing and leave the count unchanged. */
+		count = m1_msgbox_wrap(segs[s], max_width, measure, ctx,
+		                       out, count, max_lines);
+	}
+
+	return count;
 }
