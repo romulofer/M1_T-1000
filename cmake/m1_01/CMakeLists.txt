@@ -431,6 +431,8 @@ target_sources(m1_01 INTERFACE
     ../../m1_csrc/m1_card_list_layout.c
     ../../m1_csrc/m1_tx_status_layout.c
     ../../m1_csrc/m1_msgbox_layout.c
+    ../../m1_csrc/m1_uremote_match.c
+    ../../m1_csrc/m1_uremote_layout.c
     ../../m1_csrc/m1_esp32_fw_update.c
     ../../m1_csrc/m1_esp32_hal.c
     ../../m1_csrc/m1_diag.c

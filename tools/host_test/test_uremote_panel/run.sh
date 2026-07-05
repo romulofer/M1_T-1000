@@ -16,6 +16,7 @@ BIN="$DIR/test_uremote_panel"
 	-I"$DIR" -I"$ROOT/m1_csrc" \
 	"$DIR/test_uremote_panel.c" \
 	"$ROOT/m1_csrc/m1_uremote_match.c" \
+	"$ROOT/m1_csrc/m1_uremote_layout.c" \
 	-o "$BIN"
 
 "$BIN"
