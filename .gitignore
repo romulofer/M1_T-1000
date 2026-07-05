@@ -67,3 +67,7 @@ m1-firmware/
 m1-stock/
 esp32-at-hid/
 Archive-Do-Not-Reference/
+
+# Python bytecode caches (host test tooling)
+__pycache__/
+*.pyc

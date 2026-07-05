@@ -1,0 +1,184 @@
+Filetype: IR signals file
+Version: 1
+#
+# Bose
+name: Power
+type: parsed
+protocol: Bose
+address: 00 00 00 00
+command: 4C 00 00 00
+#
+# Denon_Receiver
+name: Power
+type: parsed
+protocol: Denon
+address: 02 00 00 00
+command: 00 00 00 00
+#
+# Samsung_Soundbar
+name: Power
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 0E 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: Samsung32
+address: 0B 00 00 00
+command: 0E 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: 08 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: SIRC
+address: 10 00 00 00
+command: 15 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: SIRC
+address: 30 00 00 00
+command: 15 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: D2 00 00 00
+command: 04 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: A1 00 00 00
+command: 7E 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: A5 00 00 00
+command: 1C 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: RC5
+address: 10 00 00 00
+command: 0C 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 80 00 00 00
+command: 0C 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 80 00 00 00
+command: 08 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: RC5
+address: 11 00 00 00
+command: 0C 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: RC5
+address: 14 00 00 00
+command: 0C 00 00 00
+#
+# Bose
+name: Vol_Up
+type: parsed
+protocol: Bose
+address: 00 00 00 00
+command: 01 00 00 00
+#
+# Denon_Receiver
+name: Vol_Up
+type: parsed
+protocol: Denon
+address: 02 00 00 00
+command: 04 00 00 00
+#
+# Samsung_Soundbar
+name: Vol_Up
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 07 00 00 00
+#
+# Bose
+name: Vol_Down
+type: parsed
+protocol: Bose
+address: 00 00 00 00
+command: 02 00 00 00
+#
+# Denon_Receiver
+name: Vol_Down
+type: parsed
+protocol: Denon
+address: 02 00 00 00
+command: 05 00 00 00
+#
+# Samsung_Soundbar
+name: Vol_Down
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 0B 00 00 00
+#
+# Bose
+name: Mute
+type: parsed
+protocol: Bose
+address: 00 00 00 00
+command: 03 00 00 00
+#
+# Denon_Receiver
+name: Mute
+type: parsed
+protocol: Denon
+address: 02 00 00 00
+command: 06 00 00 00
+#
+# Samsung_Soundbar
+name: Mute
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 0F 00 00 00
+#
+# Bose
+name: Source
+type: parsed
+protocol: Bose
+address: 00 00 00 00
+command: 0B 00 00 00
+#
+# Samsung_Soundbar
+name: Source
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 01 00 00 00

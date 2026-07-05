@@ -1,0 +1,114 @@
+Filetype: IR signals file
+Version: 1
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 05 00 00 00
+command: 00 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 05 00 00 00
+command: 47 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 30 00 00 00
+command: 0C 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 00 00 00 00
+command: 08 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 44 00 00 00
+command: 02 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 01 00 00 00
+command: 02 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 44 00 00 00
+command: 0C 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 45 00 00 00
+command: 02 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 38 00 00 00
+command: 02 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 44 00 00 00
+command: 08 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: 08 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: SIRC
+address: 49 00 00 00
+command: 15 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: Kaseikyo
+address: 00 40 04 00
+command: 3D 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 02 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: 02 00 00 00
+#
+# Universal_Projector
+name: Power
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 02 00 00 00

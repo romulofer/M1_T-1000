@@ -1,0 +1,625 @@
+Filetype: IR signals file
+Version: 1
+#
+# Hisense
+name: Power
+type: parsed
+protocol: NEC
+address: 00 00 00 00
+command: 08 00 00 00
+#
+# LG
+name: Power
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: 08 00 00 00
+#
+# Panasonic
+name: Power
+type: parsed
+protocol: Kaseikyo
+address: 00 40 04 00
+command: 3D 00 00 00
+#
+# Philips
+name: Power
+type: parsed
+protocol: RC5
+address: 00 00 00 00
+command: 0C 00 00 00
+#
+# Samsung
+name: Power
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 02 00 00 00
+#
+# Sharp
+name: Power
+type: parsed
+protocol: Denon
+address: 0A 00 00 00
+command: 00 00 00 00
+#
+# Sony
+name: Power
+type: parsed
+protocol: SIRC
+address: 01 00 00 00
+command: 15 00 00 00
+#
+# TCL
+name: Power
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 0C 00 00 00
+#
+# Toshiba
+name: Power
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 12 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: Samsung32
+address: 0B 00 00 00
+command: 02 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 98 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: C4 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: SIRC
+address: 4D 00 00 00
+command: 15 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: SIRC20
+address: 10 01 00 00
+command: 15 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: RC6
+address: 00 00 00 00
+command: 0C 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: Kaseikyo
+address: 08 40 04 00
+command: 3D 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 01 00 00 00
+command: 08 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 02 00 00 00
+command: 08 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: JVC
+address: 03 00 00 00
+command: 00 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: Denon
+address: 08 00 00 00
+command: 00 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 1C 00 00 00
+command: 08 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: RCA
+address: 0F 00 00 00
+command: 00 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: A5 00 00 00
+command: 1C 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 00 00 00 00
+command: 0C 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 08 00 00 00
+command: 08 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 10 00 00 00
+command: 08 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 20 00 00 00
+command: 08 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: NEC
+address: 80 00 00 00
+command: 08 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: RC5
+address: 01 00 00 00
+command: 0C 00 00 00
+#
+# Universal_Power
+name: Power
+type: parsed
+protocol: RC6
+address: 01 00 00 00
+command: 0C 00 00 00
+#
+# Hisense
+name: Vol_Up
+type: parsed
+protocol: NEC
+address: 00 00 00 00
+command: 02 00 00 00
+#
+# LG
+name: Vol_Up
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: 02 00 00 00
+#
+# Panasonic
+name: Vol_Up
+type: parsed
+protocol: Kaseikyo
+address: 00 40 04 00
+command: 20 00 00 00
+#
+# Philips
+name: Vol_Up
+type: parsed
+protocol: RC5
+address: 00 00 00 00
+command: 10 00 00 00
+#
+# Samsung
+name: Vol_Up
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 07 00 00 00
+#
+# Sharp
+name: Vol_Up
+type: parsed
+protocol: Denon
+address: 0A 00 00 00
+command: 04 00 00 00
+#
+# Sony
+name: Vol_Up
+type: parsed
+protocol: SIRC
+address: 01 00 00 00
+command: 12 00 00 00
+#
+# TCL
+name: Vol_Up
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 02 00 00 00
+#
+# Toshiba
+name: Vol_Up
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 1A 00 00 00
+#
+# Hisense
+name: Vol_Down
+type: parsed
+protocol: NEC
+address: 00 00 00 00
+command: 03 00 00 00
+#
+# LG
+name: Vol_Down
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: 03 00 00 00
+#
+# Panasonic
+name: Vol_Down
+type: parsed
+protocol: Kaseikyo
+address: 00 40 04 00
+command: 21 00 00 00
+#
+# Philips
+name: Vol_Down
+type: parsed
+protocol: RC5
+address: 00 00 00 00
+command: 11 00 00 00
+#
+# Samsung
+name: Vol_Down
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 0B 00 00 00
+#
+# Sharp
+name: Vol_Down
+type: parsed
+protocol: Denon
+address: 0A 00 00 00
+command: 05 00 00 00
+#
+# Sony
+name: Vol_Down
+type: parsed
+protocol: SIRC
+address: 01 00 00 00
+command: 13 00 00 00
+#
+# TCL
+name: Vol_Down
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 03 00 00 00
+#
+# Toshiba
+name: Vol_Down
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 1E 00 00 00
+#
+# Hisense
+name: Ch_Up
+type: parsed
+protocol: NEC
+address: 00 00 00 00
+command: 00 00 00 00
+#
+# LG
+name: Ch_Up
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: 00 00 00 00
+#
+# Panasonic
+name: Ch_Up
+type: parsed
+protocol: Kaseikyo
+address: 00 40 04 00
+command: 34 00 00 00
+#
+# Philips
+name: Ch_Up
+type: parsed
+protocol: RC5
+address: 00 00 00 00
+command: 20 00 00 00
+#
+# Samsung
+name: Ch_Up
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 12 00 00 00
+#
+# Sharp
+name: Ch_Up
+type: parsed
+protocol: Denon
+address: 0A 00 00 00
+command: 06 00 00 00
+#
+# Sony
+name: Ch_Up
+type: parsed
+protocol: SIRC
+address: 01 00 00 00
+command: 10 00 00 00
+#
+# TCL
+name: Ch_Up
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 00 00 00 00
+#
+# Toshiba
+name: Ch_Up
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 1B 00 00 00
+#
+# Hisense
+name: Ch_Down
+type: parsed
+protocol: NEC
+address: 00 00 00 00
+command: 01 00 00 00
+#
+# LG
+name: Ch_Down
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: 01 00 00 00
+#
+# Panasonic
+name: Ch_Down
+type: parsed
+protocol: Kaseikyo
+address: 00 40 04 00
+command: 35 00 00 00
+#
+# Philips
+name: Ch_Down
+type: parsed
+protocol: RC5
+address: 00 00 00 00
+command: 21 00 00 00
+#
+# Samsung
+name: Ch_Down
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 10 00 00 00
+#
+# Sharp
+name: Ch_Down
+type: parsed
+protocol: Denon
+address: 0A 00 00 00
+command: 07 00 00 00
+#
+# Sony
+name: Ch_Down
+type: parsed
+protocol: SIRC
+address: 01 00 00 00
+command: 11 00 00 00
+#
+# TCL
+name: Ch_Down
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 01 00 00 00
+#
+# Toshiba
+name: Ch_Down
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 1F 00 00 00
+#
+# Hisense
+name: Mute
+type: parsed
+protocol: NEC
+address: 00 00 00 00
+command: 09 00 00 00
+#
+# LG
+name: Mute
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: 09 00 00 00
+#
+# Panasonic
+name: Mute
+type: parsed
+protocol: Kaseikyo
+address: 00 40 04 00
+command: 32 00 00 00
+#
+# Philips
+name: Mute
+type: parsed
+protocol: RC5
+address: 00 00 00 00
+command: 0D 00 00 00
+#
+# Samsung
+name: Mute
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 0F 00 00 00
+#
+# Sharp
+name: Mute
+type: parsed
+protocol: Denon
+address: 0A 00 00 00
+command: 01 00 00 00
+#
+# Sony
+name: Mute
+type: parsed
+protocol: SIRC
+address: 01 00 00 00
+command: 14 00 00 00
+#
+# TCL
+name: Mute
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 0D 00 00 00
+#
+# Toshiba
+name: Mute
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 10 00 00 00
+#
+# Hisense
+name: Source
+type: parsed
+protocol: NEC
+address: 00 00 00 00
+command: 0B 00 00 00
+#
+# LG
+name: Source
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: 0B 00 00 00
+#
+# Panasonic
+name: Source
+type: parsed
+protocol: Kaseikyo
+address: 00 40 04 00
+command: A0 00 00 00
+#
+# Philips
+name: Source
+type: parsed
+protocol: RC5
+address: 00 00 00 00
+command: 38 00 00 00
+#
+# Samsung
+name: Source
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 01 00 00 00
+#
+# Sharp
+name: Source
+type: parsed
+protocol: Denon
+address: 0A 00 00 00
+command: 16 00 00 00
+#
+# Sony
+name: Source
+type: parsed
+protocol: SIRC
+address: 01 00 00 00
+command: 25 00 00 00
+#
+# TCL
+name: Source
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 0B 00 00 00
+#
+# Toshiba
+name: Source
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 0F 00 00 00
+#
+# LG
+name: Menu
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: C4 00 00 00
+#
+# Panasonic
+name: Menu
+type: parsed
+protocol: Kaseikyo
+address: 00 40 04 00
+command: 06 00 00 00
+#
+# Philips
+name: Menu
+type: parsed
+protocol: RC5
+address: 00 00 00 00
+command: 12 00 00 00
+#
+# Samsung
+name: Menu
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 1A 00 00 00
+#
+# Sony
+name: Menu
+type: parsed
+protocol: SIRC
+address: 01 00 00 00
+command: 60 00 00 00
