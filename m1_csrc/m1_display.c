@@ -15,6 +15,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 //#include "stm32h5xx_hal.h"
 //#include "main.h"
 #include "battery.h"
@@ -26,6 +27,7 @@
 #include "m1_sdcard.h"
 #include "m1_wifi.h"
 #include "m1_system.h"
+#include "m1_msgbox_layout.h"
 
 /*************************** D E F I N E S ************************************/
 
@@ -893,50 +895,133 @@ void m1_info_box_display_draw(uint8_t box_row, const uint8_t *ptext)
   * @retval
   */
 /*============================================================================*/
+/* Body geometry for the readable message box (128x64). The text column sits on
+ * the left; the right edge is reserved for the scroll carets; the bottom strip
+ * is pinned for the framed button hint. */
+#define MSGBOX_TEXT_X          2   /* left text margin (px) */
+#define MSGBOX_TEXT_MAX_W    116   /* wrap width; leaves the right edge for carets */
+#define MSGBOX_LINE_PITCH     10   /* baseline-to-baseline (px), 6x10 body font */
+#define MSGBOX_FIRST_BASE      9   /* baseline of the first visible line (px) */
+#define MSGBOX_VISIBLE_ROWS    5   /* baselines 9,19,29,39,49 above the hint strip */
+#define MSGBOX_HINT_TOP       52   /* top of the button-hint frame (px) */
+#define MSGBOX_HINT_BASE      61   /* baseline of the hint text (px) */
+
+/* Pixel-measure callback injected into the pure layout core: renders s[0..len)
+ * with the current u8g2 font and returns its width. ctx is the u8g2 handle. The
+ * substring is copied into a bounded stack buffer (no heap); an over-long slice
+ * is clamped, which only ever over-estimates the width and is harmless because
+ * the wrapper rejects anything past max_width regardless. */
+static int m1_msgbox_measure_u8g2(const char *s, int len, void *ctx)
+{
+	char buf[64];
+	if (len < 0)
+		len = 0;
+	if (len > (int)sizeof(buf) - 1)
+		len = (int)sizeof(buf) - 1;
+	memcpy(buf, s, (size_t)len);
+	buf[len] = '\0';
+	return (int)u8g2_GetStrWidth((u8g2_t *)ctx, buf);
+}
+
 uint8_t m1_message_box(u8g2_t *u8g2, const char *title1, const char *title2, const char *title3, const char *buttons)
 {
+	m1_msgbox_line_t lines[M1_MSGBOX_MAX_LINES];
+	int total;
+	int offset = 0;
 
-  u8g2_UserInterfaceMessage(u8g2, title1, title2, title3, buttons);
+	/* Flow title1/2/3 into word-wrapped lines against the real proportional
+	 * font (the core stays u8g2-free; we inject the measure callback here). */
+	u8g2_SetFont(u8g2, u8g2_font_6x10_tr);
+	total = m1_msgbox_layout(title1, title2, title3, MSGBOX_TEXT_MAX_W,
+	                         m1_msgbox_measure_u8g2, u8g2,
+	                         lines, M1_MSGBOX_MAX_LINES);
 
-  for(;;)
-  {
-      S_M1_Main_Q_t q_item;
-      S_M1_Buttons_Status this_button_status;
-      BaseType_t ret;
+	for (;;)
+	{
+		int overflow;
+
+		offset = m1_msgbox_clamp_offset(offset, total, MSGBOX_VISIBLE_ROWS);
+		overflow = m1_msgbox_overflow(total, MSGBOX_VISIBLE_ROWS);
+
+		u8g2_FirstPage(u8g2);
+		do {
+			u8g2_SetFont(u8g2, u8g2_font_6x10_tr);
+			u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+
+			/* Draw the visible window of wrapped lines. */
+			for (int row = 0; row < MSGBOX_VISIBLE_ROWS; row++) {
+				int li = offset + row;
+				char tmp[40];
+				int n;
+				if (li >= total)
+					break;
+				n = lines[li].len;
+				if (n < 0)
+					n = 0;
+				if (n > (int)sizeof(tmp) - 1)
+					n = (int)sizeof(tmp) - 1;
+				memcpy(tmp, lines[li].base + lines[li].off, (size_t)n);
+				tmp[n] = '\0';
+				u8g2_DrawStr(u8g2, MSGBOX_TEXT_X,
+				             MSGBOX_FIRST_BASE + row * MSGBOX_LINE_PITCH, tmp);
+			}
+
+			/* Right-edge scroll carets: up when content sits above the window,
+			 * down when content sits below. Drawn only while the body overflows. */
+			if (overflow) {
+				if (offset > 0)
+					u8g2_DrawTriangle(u8g2, 123, 1, 120, 5, 126, 5);
+				if (offset < m1_msgbox_max_offset(total, MSGBOX_VISIBLE_ROWS))
+					u8g2_DrawTriangle(u8g2, 120, 45, 126, 45, 123, 49);
+			}
+
+			/* Pinned button hint at the bottom, framed like the prior dialog. */
+			if (buttons != NULL) {
+				uint8_t bw = u8g2_GetStrWidth(u8g2, buttons);
+				int bx = (128 - (int)bw) / 2;
+				if (bx < 2)
+					bx = 2;
+				u8g2_DrawFrame(u8g2, bx - 3, MSGBOX_HINT_TOP, bw + 5, 11);
+				u8g2_DrawStr(u8g2, bx, MSGBOX_HINT_BASE, buttons);
+			}
+		} while (u8g2_NextPage(u8g2));
+
+		/* Input: Up/Down scroll (clamped); BACK/LEFT/OK/RIGHT dismiss. */
+		S_M1_Main_Q_t q_item;
+		S_M1_Buttons_Status this_button_status;
+		BaseType_t ret;
 
 		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
-		if (ret==pdTRUE)
+		if (ret == pdTRUE)
 		{
-			if ( q_item.q_evt_type==Q_EVENT_KEYPAD )
+			if (q_item.q_evt_type == Q_EVENT_KEYPAD)
 			{
 				// Notification is only sent to this task when there's any button activity,
 				// so it doesn't need to wait when reading the event from the queue
 				ret = xQueueReceive(button_events_q_hdl, &this_button_status, 0);
-				if ( this_button_status.event[BUTTON_BACK_KP_ID]==BUTTON_EVENT_CLICK
+				if (this_button_status.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK)
+				{
+					offset = m1_msgbox_clamp_offset(offset - 1, total,
+					                                MSGBOX_VISIBLE_ROWS);
+				}
+				else if (this_button_status.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK)
+				{
+					offset = m1_msgbox_clamp_offset(offset + 1, total,
+					                                MSGBOX_VISIBLE_ROWS);
+				}
+				else if ( this_button_status.event[BUTTON_BACK_KP_ID]==BUTTON_EVENT_CLICK
 			  || this_button_status.event[BUTTON_LEFT_KP_ID]==BUTTON_EVENT_CLICK
 			  || this_button_status.event[BUTTON_OK_KP_ID]==BUTTON_EVENT_CLICK
 			  || this_button_status.event[BUTTON_RIGHT_KP_ID]==BUTTON_EVENT_CLICK ) // user wants to exit?
 				{
-					; // Do extra tasks here if needed
-
 					xQueueReset(main_q_hdl); // Reset main q before return
 					break; // Exit and return to the calling task (subfunc_handler_task)
-				} // if ( m1_buttons_status[BUTTON_BACK_KP_ID]==BUTTON_EVENT_CLICK )
-				else
-				{
-					; // Do other things for this task, if needed
 				}
 			} // if ( q_item.q_evt_type==Q_EVENT_KEYPAD )
-			else
-			{
-				; // Do other things for this task
-			}
 		} // if (ret==pdTRUE)
+	}
 
-  }
-
-  /* never reached */
-  return 0;
+	return 0;
 }
 
 uint8_t m1_message_box_choice(u8g2_t *u8g2, const char *title1, const char *title2, const char *title3, const char *buttons)
