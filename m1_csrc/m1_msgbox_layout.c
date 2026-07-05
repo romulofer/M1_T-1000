@@ -102,3 +102,24 @@ int m1_msgbox_layout(const char *title1, const char *title2, const char *title3,
 
 	return count;
 }
+
+int m1_msgbox_max_offset(int total, int visible)
+{
+	int max = total - visible;
+	return max > 0 ? max : 0;
+}
+
+int m1_msgbox_clamp_offset(int offset, int total, int visible)
+{
+	int max = m1_msgbox_max_offset(total, visible);
+	if (offset < 0)
+		return 0;
+	if (offset > max)
+		return max;
+	return offset;
+}
+
+int m1_msgbox_overflow(int total, int visible)
+{
+	return total > visible;
+}

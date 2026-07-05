@@ -63,6 +63,21 @@ int m1_msgbox_layout(const char *title1, const char *title2, const char *title3,
                      int max_width, m1_msgbox_measure_fn measure, void *ctx,
                      m1_msgbox_line_t *out, int max_lines);
 
+/*
+ * Scroll helpers (pure). `total` is the wrapped-line count, `visible` the number
+ * of body rows that fit on screen.
+ */
+
+/* Largest valid scroll offset: max(0, total - visible). */
+int m1_msgbox_max_offset(int total, int visible);
+
+/* Clamp `offset` into [0, max_offset(total, visible)]. Decrementing at the top
+ * or incrementing past the bottom therefore becomes a no-op. */
+int m1_msgbox_clamp_offset(int offset, int total, int visible);
+
+/* Non-zero iff the content is taller than the window: total > visible. */
+int m1_msgbox_overflow(int total, int visible);
+
 #ifdef __cplusplus
 }
 #endif

@@ -279,6 +279,63 @@ static void test_layout_caps_at_max_lines(void)
 	             "layout: combined output capped at M1_MSGBOX_MAX_LINES");
 }
 
+/*************************** C R I T   3   T E S T S *************************/
+
+/* Overflow flag is set iff total > visible; equal or fewer -> no overflow. */
+static void test_overflow_flag(void)
+{
+	CHECK(m1_msgbox_overflow(10, 4) != 0, "overflow: 10 > 4 overflows");
+	CHECK(m1_msgbox_overflow(5, 5) == 0, "overflow: 5 == 5 fits (no overflow)");
+	CHECK(m1_msgbox_overflow(3, 5) == 0, "overflow: 3 < 5 fits (no overflow)");
+	CHECK(m1_msgbox_overflow(0, 5) == 0, "overflow: empty content fits");
+}
+
+/* max_offset = max(0, total - visible), never negative. */
+static void test_max_offset(void)
+{
+	CHECK_EQ_INT(m1_msgbox_max_offset(10, 4), 6, "max_offset: 10-4 = 6");
+	CHECK_EQ_INT(m1_msgbox_max_offset(4, 4), 0, "max_offset: exact fit = 0");
+	CHECK_EQ_INT(m1_msgbox_max_offset(2, 5), 0,
+	             "max_offset: content shorter than window clamps to 0");
+	CHECK_EQ_INT(m1_msgbox_max_offset(0, 0), 0, "max_offset: zero window = 0");
+}
+
+/* Offset clamps into [0, max_offset]; out-of-range values snap to the bounds. */
+static void test_clamp_offset_bounds(void)
+{
+	/* total=10, visible=4 -> valid range [0, 6]. */
+	CHECK_EQ_INT(m1_msgbox_clamp_offset(0, 10, 4), 0, "clamp: 0 stays 0");
+	CHECK_EQ_INT(m1_msgbox_clamp_offset(3, 10, 4), 3, "clamp: mid unchanged");
+	CHECK_EQ_INT(m1_msgbox_clamp_offset(6, 10, 4), 6, "clamp: bottom unchanged");
+	CHECK_EQ_INT(m1_msgbox_clamp_offset(9, 10, 4), 6, "clamp: past bottom -> 6");
+	CHECK_EQ_INT(m1_msgbox_clamp_offset(-3, 10, 4), 0, "clamp: negative -> 0");
+}
+
+/* Up at the top and Down at the bottom are no-ops (via clamp of offset-1/+1). */
+static void test_scroll_step_noops_at_ends(void)
+{
+	/* total=10, visible=4 -> range [0, 6]. */
+	int top = 0;
+	CHECK_EQ_INT(m1_msgbox_clamp_offset(top - 1, 10, 4), 0,
+	             "scroll: Up at top is a no-op");
+
+	int bottom = m1_msgbox_max_offset(10, 4); /* 6 */
+	CHECK_EQ_INT(m1_msgbox_clamp_offset(bottom + 1, 10, 4), 6,
+	             "scroll: Down at bottom is a no-op");
+
+	/* Interior steps move by exactly one. */
+	CHECK_EQ_INT(m1_msgbox_clamp_offset(3 - 1, 10, 4), 2, "scroll: Up steps -1");
+	CHECK_EQ_INT(m1_msgbox_clamp_offset(3 + 1, 10, 4), 4, "scroll: Down steps +1");
+}
+
+/* When content fits (no overflow), the only valid offset is 0. */
+static void test_scroll_no_overflow_pins_top(void)
+{
+	CHECK_EQ_INT(m1_msgbox_max_offset(3, 5), 0, "scroll: fits -> max_offset 0");
+	CHECK_EQ_INT(m1_msgbox_clamp_offset(1, 3, 5), 0,
+	             "scroll: any offset pins to 0 when content fits");
+}
+
 /******************************* M A I N *************************************/
 
 int main(void)
@@ -296,6 +353,12 @@ int main(void)
 	test_layout_skips_empty_segments();
 	test_layout_wrapped_segment_starts_new_line();
 	test_layout_caps_at_max_lines();
+
+	test_overflow_flag();
+	test_max_offset();
+	test_clamp_offset_bounds();
+	test_scroll_step_noops_at_ends();
+	test_scroll_no_overflow_pins_top();
 
 	printf("  %d checks, %d failures\n", g_checks, g_failures);
 	return g_failures == 0 ? 0 : 1;
