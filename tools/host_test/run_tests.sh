@@ -9,6 +9,10 @@
 #      and runs the round-trip assertions, per SPEC.md ("parse the written .ir
 #      with the same flipper_ir logic").
 #   4. SubGHz live-RSSI-bar geometry helpers.
+#   5. Universal Remotes: record-name matcher + 2-col grid geometry
+#      (test_uremote_panel).
+#   6. build_universal_ir.py generator unit test (parse / normalize / dedup /
+#      emit), when python3 is available.
 set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -54,4 +58,19 @@ SUBGHZ_BIN="$DIR/test_subghz_rssi"
 	"$DIR/test_subghz_rssi.c" \
 	-o "$SUBGHZ_BIN"
 "$SUBGHZ_BIN"
-exit $?
+
+# Universal Remotes: record-name matcher + 2-col grid geometry (compiles the
+# real m1_uremote_match.c + m1_uremote_layout.c with the host shim).
+echo
+echo "== Universal Remotes matcher + panel geometry test =="
+sh "$DIR/test_uremote_panel/run.sh"
+
+# build_universal_ir.py generator unit test (pure parse/normalize/dedup/emit
+# core). Skipped with a note when python3 is unavailable on the bench.
+echo
+echo "== build_universal_ir generator unit test =="
+if command -v python3 >/dev/null 2>&1; then
+	python3 "$ROOT/tools/test_build_universal_ir.py"
+else
+	echo "  (skipped: python3 not found)"
+fi
