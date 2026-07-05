@@ -80,3 +80,20 @@ int m1_msgbox_wrap(const char *s, int max_width,
 
 	return count;
 }
+
+/* TODO(Task 2): flow the three segments. Stub returns 0 so the host test
+ * starts RED. */
+int m1_msgbox_layout(const char *title1, const char *title2, const char *title3,
+                     int max_width, m1_msgbox_measure_fn measure, void *ctx,
+                     m1_msgbox_line_t *out, int max_lines)
+{
+	(void)title1;
+	(void)title2;
+	(void)title3;
+	(void)max_width;
+	(void)measure;
+	(void)ctx;
+	(void)out;
+	(void)max_lines;
+	return 0;
+}

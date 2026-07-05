@@ -196,6 +196,89 @@ static void test_wrap_empty_and_null(void)
 	CHECK_EQ_INT(n, 3, "wrap: whitespace-only string is a no-op");
 }
 
+/*************************** C R I T   2   T E S T S *************************/
+
+/* Non-empty segments each begin a new line and flow in title1->2->3 order. */
+static void test_layout_segments_in_order(void)
+{
+	m1_msgbox_line_t lines[M1_MSGBOX_MAX_LINES];
+	char buf[128];
+	int n = m1_msgbox_layout("aaa", "bbb", "ccc", 60, measure_6px, NULL,
+	                         lines, M1_MSGBOX_MAX_LINES);
+
+	CHECK_EQ_INT(n, 3, "layout: three segments -> three lines");
+	CHECK_EQ_STR(span_str(&lines[0], buf, sizeof(buf)), "aaa",
+	             "layout: title1 first");
+	CHECK_EQ_STR(span_str(&lines[1], buf, sizeof(buf)), "bbb",
+	             "layout: title2 second");
+	CHECK_EQ_STR(span_str(&lines[2], buf, sizeof(buf)), "ccc",
+	             "layout: title3 third");
+}
+
+/* NULL / "" segments contribute no lines; remaining ones keep their order. */
+static void test_layout_skips_empty_segments(void)
+{
+	m1_msgbox_line_t lines[M1_MSGBOX_MAX_LINES];
+	char buf[128];
+
+	int n = m1_msgbox_layout(NULL, "bbb", "", 60, measure_6px, NULL,
+	                         lines, M1_MSGBOX_MAX_LINES);
+	CHECK_EQ_INT(n, 1, "layout: NULL + empty skipped -> 1 line");
+	CHECK_EQ_STR(span_str(&lines[0], buf, sizeof(buf)), "bbb",
+	             "layout: sole non-empty segment retained");
+
+	n = m1_msgbox_layout("", "", "", 60, measure_6px, NULL, lines,
+	                     M1_MSGBOX_MAX_LINES);
+	CHECK_EQ_INT(n, 0, "layout: all-empty -> 0 lines");
+
+	n = m1_msgbox_layout("aaa", "", "ccc", 60, measure_6px, NULL, lines,
+	                     M1_MSGBOX_MAX_LINES);
+	CHECK_EQ_INT(n, 2, "layout: middle empty skipped -> 2 lines");
+	CHECK_EQ_STR(span_str(&lines[0], buf, sizeof(buf)), "aaa",
+	             "layout: title1 kept when title2 empty");
+	CHECK_EQ_STR(span_str(&lines[1], buf, sizeof(buf)), "ccc",
+	             "layout: title3 follows title1 directly");
+}
+
+/* A wrapped segment does not bleed into the next: the next segment starts on
+ * its own new line. Mirrors the SubGHz out-of-range call in the spec. */
+static void test_layout_wrapped_segment_starts_new_line(void)
+{
+	m1_msgbox_line_t lines[M1_MSGBOX_MAX_LINES];
+	char buf[128];
+	/* title1 wraps to 2 lines at w=60; title2 must begin a 3rd line. */
+	int n = m1_msgbox_layout("the quick brown fox", "next", "", 60,
+	                         measure_6px, NULL, lines, M1_MSGBOX_MAX_LINES);
+
+	CHECK_EQ_INT(n, 3, "layout: wrapped title1 (2) + title2 (1) -> 3 lines");
+	CHECK_EQ_STR(span_str(&lines[0], buf, sizeof(buf)), "the quick",
+	             "layout: title1 line 0");
+	CHECK_EQ_STR(span_str(&lines[1], buf, sizeof(buf)), "brown fox",
+	             "layout: title1 line 1");
+	CHECK_EQ_STR(span_str(&lines[2], buf, sizeof(buf)), "next",
+	             "layout: title2 begins its own line");
+}
+
+/* Combined output is still capped at M1_MSGBOX_MAX_LINES. */
+static void test_layout_caps_at_max_lines(void)
+{
+	m1_msgbox_line_t lines[M1_MSGBOX_MAX_LINES];
+	/* Each segment forces one short word per line at w=6; together far exceeds
+	 * the cap. */
+	char seg[4 * M1_MSGBOX_MAX_LINES];
+	int p = 0;
+	for (int i = 0; i < M1_MSGBOX_MAX_LINES; i++) {
+		seg[p++] = (char)('a' + (i % 26));
+		seg[p++] = ' ';
+	}
+	seg[p] = '\0';
+
+	int n = m1_msgbox_layout(seg, seg, seg, 6, measure_6px, NULL, lines,
+	                         M1_MSGBOX_MAX_LINES);
+	CHECK_EQ_INT(n, M1_MSGBOX_MAX_LINES,
+	             "layout: combined output capped at M1_MSGBOX_MAX_LINES");
+}
+
 /******************************* M A I N *************************************/
 
 int main(void)
@@ -208,6 +291,11 @@ int main(void)
 	test_wrap_appends_from_start_count();
 	test_wrap_caps_at_max_lines();
 	test_wrap_empty_and_null();
+
+	test_layout_segments_in_order();
+	test_layout_skips_empty_segments();
+	test_layout_wrapped_segment_starts_new_line();
+	test_layout_caps_at_max_lines();
 
 	printf("  %d checks, %d failures\n", g_checks, g_failures);
 	return g_failures == 0 ? 0 : 1;
