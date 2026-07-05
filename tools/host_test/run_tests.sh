@@ -1,15 +1,23 @@
 #!/bin/sh
-# Host round-trip tests for the Flipper .ir file layer.
+# Host unit/round-trip test suite (no firmware build, no hardware).
 #
-# Compiles the REAL m1_csrc/flipper_file.c + flipper_ir.c against the FatFs/IRMP
-# host shims in this directory and runs the round-trip assertions. This is the
-# host-side verification called for by SPEC.md ("parse the written .ir with the
-# same flipper_ir logic"). It does NOT touch the firmware build.
+#   1. Centered "Please wait..." box pure-geometry test (test_please_wait_box).
+#   2. Flipper .ir file-layer round-trip test: compiles the REAL
+#      m1_csrc/flipper_file.c + flipper_ir.c against the FatFs/IRMP host shims
+#      and runs the round-trip assertions, per SPEC.md ("parse the written .ir
+#      with the same flipper_ir logic").
 set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$DIR/../.." && pwd)"
 CC="${CC:-cc}"
+
+# 1/2: pure-geometry unit test for the centered "Please wait..." box.
+echo "== 1/2: please-wait box geometry test =="
+sh "$DIR/test_please_wait_box/run.sh"
+echo
+echo "== 2/2: Flipper .ir round-trip suite =="
+
 BIN="$DIR/test_flipper_ir"
 
 # Shim headers (ff.h, irmp.h) must resolve BEFORE anything else, so -I"$DIR"
