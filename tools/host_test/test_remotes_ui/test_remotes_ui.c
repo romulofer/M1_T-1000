@@ -19,6 +19,7 @@
  */
 
 #include "m1_card_list_layout.h"
+#include "m1_tx_status_layout.h"
 
 #include <stdio.h>
 
@@ -164,6 +165,51 @@ static void check_scrollbar(uint16_t total, uint16_t start_idx, uint16_t vmax,
 	CHECK((long)R.x + R.w <= S.x, "card does not overlap thumb column");
 }
 
+/************************ T X - S T A T U S   T E S T S **********************/
+
+#define TX_DISP_W 128
+#define TX_DISP_H 64
+
+static void check_tx_status(const S_M1_TxStatus_Line *lines, int n,
+                            const char *label)
+{
+	S_M1_TxStatus_Layout L = m1_tx_status_layout(TX_DISP_W, TX_DISP_H, lines, n);
+	int i;
+	u8g2_uint_t widest = 0;
+
+	printf("-- tx %s (n=%d): card=(%u,%u %ux%u) n_lines=%d\n",
+	       label, n, (unsigned)L.x, (unsigned)L.y,
+	       (unsigned)L.w, (unsigned)L.h, L.n_lines);
+
+	CHECK(L.n_lines == n, "n_lines echoes requested count");
+
+	/* Card centered and fully on-screen (with room for the drop shadow). */
+	CHECK(L.x == (u8g2_uint_t)((TX_DISP_W - L.w) / 2), "card centered X");
+	CHECK(L.y == (u8g2_uint_t)((TX_DISP_H - L.h) / 2), "card centered Y");
+	CHECK((long)L.x + L.w + M1_TX_SHADOW <= TX_DISP_W, "card+shadow within width");
+	CHECK((long)L.y + L.h + M1_TX_SHADOW <= TX_DISP_H, "card+shadow within height");
+
+	for (i = 0; i < n; i++)
+		if (lines[i].w > widest)
+			widest = lines[i].w;
+	CHECK(L.w >= (u8g2_uint_t)(widest + 2 * M1_TX_PAD), "card wide enough for widest line + pad");
+
+	for (i = 0; i < n; i++)
+	{
+		/* Each line centered within the card. */
+		CHECK((u8g2_uint_t)(L.line_x[i] * 2 + lines[i].w) == (u8g2_uint_t)(L.x * 2 + L.w),
+		      "line centered on card x + w/2");
+		CHECK(L.line_x[i] >= L.x, "line inside card left");
+		CHECK((long)L.line_x[i] + lines[i].w <= (long)L.x + L.w, "line inside card right");
+		/* Baseline within the card, text top within the card. */
+		CHECK(L.line_baseline[i] <= (u8g2_uint_t)(L.y + L.h), "baseline within card bottom");
+		CHECK((long)L.line_baseline[i] - lines[i].ascent >= L.y, "line top within card");
+		if (i > 0)
+			CHECK(L.line_baseline[i] > L.line_baseline[i - 1],
+			      "lines stack top-to-bottom");
+	}
+}
+
 int main(void)
 {
 	printf("== Custom Remotes UI geometry tests ==\n");
@@ -193,6 +239,33 @@ int main(void)
 	check_scrollbar(24, 0, VMAX, "overflow, top");
 	check_scrollbar(24, 10, VMAX, "overflow, middle");
 	check_scrollbar(24, 20, VMAX, "overflow, bottom (start=total-vmax)");
+
+	/* Tx-status card: title (bold courB08 ~ h10/asc7) + body lines (spleen5x8
+	 * h8/asc6). Widths are representative of the real transmit strings. */
+	{
+		/* "Transmitting…" + a truncated name + "Addr:0x.. Cmd:0x..". */
+		S_M1_TxStatus_Line three[3] = {
+			{ 78, 10, 7 },   /* "Transmitting…" bold */
+			{ 96, 8, 6 },    /* button name, truncated to fit */
+			{ 92, 8, 6 },    /* "Addr:0xFFFF Cmd:0xFFFF" */
+		};
+		check_tx_status(three, 3, "transmit: title+name+addr");
+
+		/* Single-line toast ("Unsupported"). */
+		S_M1_TxStatus_Line one[1] = { { 64, 10, 7 } };
+		check_tx_status(one, 1, "toast: single line");
+
+		/* Two-line ("File read error" / path). */
+		S_M1_TxStatus_Line two[2] = { { 84, 10, 7 }, { 70, 8, 6 } };
+		check_tx_status(two, 2, "toast: two lines");
+
+		/* Widest line the renderer may present: a centered card plus its drop
+		 * shadow must fit (w <= disp_w - 2*SHADOW), so the text truncation
+		 * budget is disp_w - 2*PAD - 2*SHADOW. */
+		S_M1_TxStatus_Line wide[2] = { { 78, 10, 7 },
+		                               { (u8g2_uint_t)(TX_DISP_W - 2 * M1_TX_PAD - 2 * M1_TX_SHADOW), 8, 6 } };
+		check_tx_status(wide, 2, "widest line fits frame");
+	}
 
 	printf("== %d checks, %d failures ==\n", g_checks, g_failures);
 	return (g_failures == 0) ? 0 : 1;

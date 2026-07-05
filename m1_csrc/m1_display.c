@@ -26,6 +26,7 @@
 #include "m1_display.h"
 #include "m1_please_wait_layout.h"
 #include "m1_card_list_layout.h"
+#include "m1_tx_status_layout.h"
 #include "m1_sdcard.h"
 #include "m1_wifi.h"
 #include "m1_system.h"
@@ -1007,6 +1008,103 @@ void m1_card_list(const char *title,
 	m1_draw_bottom_bar(&m1_u8g2, bar_licon, bar_ltext, bar_rtext, bar_ricon);
 
 	m1_u8g2_nextpage();
+}
+
+/* Truncation budget for a tx-status line: a centered card plus its drop shadow
+ * must fit the frame, so text may occupy at most disp_w - 2*PAD - 2*SHADOW. */
+#define M1_TX_BUDGET_W \
+	((u8g2_uint_t)(M1_LCD_DISPLAY_WIDTH - 2 * M1_TX_PAD - 2 * M1_TX_SHADOW))
+
+/* Copy src into dst (bounded) under the current u8g2 font, dropping trailing
+ * characters until it fits max_w. Returns the drawn width. No heap. */
+static u8g2_uint_t m1_tx_fit_line(u8g2_t *u8g2, char *dst, size_t dstsz,
+                                  const char *src, u8g2_uint_t max_w)
+{
+	size_t n;
+
+	if (src == NULL)
+	{
+		dst[0] = '\0';
+		return 0;
+	}
+	n = strlen(src);
+	if (n > dstsz - 1)
+		n = dstsz - 1;
+	memcpy(dst, src, n);
+	dst[n] = '\0';
+
+	while (n > 0 && u8g2_GetStrWidth(u8g2, dst) > max_w)
+	{
+		n--;
+		dst[n] = '\0';
+	}
+	return u8g2_GetStrWidth(u8g2, dst);
+}
+
+/*============================================================================*/
+/**
+  * @brief Draw a centered rounded status card: a bold title plus up to two
+  *        small body lines. Overlay only — the caller owns
+  *        m1_u8g2_firstpage()/nextpage(). Thin renderer over
+  *        m1_tx_status_layout(). Long strings are truncated to fit the frame.
+  * @param u8g2   Display handle
+  * @param title  Bold title line (e.g. "Transmitting...")
+  * @param line1  Optional first body line (NULL to omit)
+  * @param line2  Optional second body line (NULL to omit)
+  * @retval None
+  */
+/*============================================================================*/
+void m1_tx_status_box(u8g2_t *u8g2, const char *title,
+                      const char *line1, const char *line2)
+{
+	char        t[24], b1[48], b2[48];
+	const char *drawn[M1_TX_MAX_LINES];
+	S_M1_TxStatus_Line lines[M1_TX_MAX_LINES];
+	S_M1_TxStatus_Layout L;
+	u8g2_uint_t asc, h;
+	int         n = 0;
+	int         i;
+
+	/* Title (bold). */
+	u8g2_SetFont(u8g2, M1_DISP_RUN_MENU_FONT_B);
+	asc = u8g2_GetAscent(u8g2);
+	h = (u8g2_uint_t)(asc - u8g2_GetDescent(u8g2));
+	lines[n].w = m1_tx_fit_line(u8g2, t, sizeof(t), title, M1_TX_BUDGET_W);
+	lines[n].h = h; lines[n].ascent = asc; drawn[n] = t; n++;
+
+	/* Body (small). */
+	u8g2_SetFont(u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	asc = u8g2_GetAscent(u8g2);
+	h = (u8g2_uint_t)(asc - u8g2_GetDescent(u8g2));
+	if (line1 != NULL)
+	{
+		lines[n].w = m1_tx_fit_line(u8g2, b1, sizeof(b1), line1, M1_TX_BUDGET_W);
+		lines[n].h = h; lines[n].ascent = asc; drawn[n] = b1; n++;
+	}
+	if (line2 != NULL)
+	{
+		lines[n].w = m1_tx_fit_line(u8g2, b2, sizeof(b2), line2, M1_TX_BUDGET_W);
+		lines[n].h = h; lines[n].ascent = asc; drawn[n] = b2; n++;
+	}
+
+	L = m1_tx_status_layout(M1_LCD_DISPLAY_WIDTH, M1_LCD_DISPLAY_HEIGHT, lines, n);
+
+	/* Drop shadow, background fill, then border (mirrors m1_please_wait_box). */
+	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_DrawRBox(u8g2, L.x + M1_TX_SHADOW, L.y + M1_TX_SHADOW, L.w, L.h, M1_TX_RADIUS);
+	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_BG);
+	u8g2_DrawRBox(u8g2, L.x, L.y, L.w, L.h, M1_TX_RADIUS);
+	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_DrawRFrame(u8g2, L.x, L.y, L.w, L.h, M1_TX_RADIUS);
+
+	/* Title in bold, body lines in the small font. */
+	u8g2_SetFont(u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(u8g2, L.line_x[0], L.line_baseline[0], drawn[0]);
+	u8g2_SetFont(u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	for (i = 1; i < n; i++)
+		u8g2_DrawStr(u8g2, L.line_x[i], L.line_baseline[i], drawn[i]);
+
+	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
 }
 
 /* Body geometry for the readable message box (128x64). The text column sits on

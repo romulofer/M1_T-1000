@@ -199,6 +199,12 @@ void m1_card_list(const char *title,
                   void *ctx,
                   const uint8_t *bar_licon, const char *bar_ltext,
                   const char *bar_rtext, const uint8_t *bar_ricon);
+
+/* Centered rounded status card: a bold title plus up to two small body lines
+ * (line1/line2 may be NULL). Overlay only — the caller owns firstpage/nextpage.
+ * Long strings are truncated to fit the 128x64 frame. See m1_tx_status_layout.h. */
+void m1_tx_status_box(u8g2_t *u8g2, const char *title,
+                      const char *line1, const char *line2);
 uint8_t m1_message_box(u8g2_t *u8g2, const char *title1, const char *title2, const char *title3, const char *buttons);
 uint8_t m1_message_box_choice(u8g2_t *u8g2, const char *title1, const char *title2, const char *title3, const char *buttons);
 void m1_draw_bottom_bar(u8g2_t *u8g2, const uint8_t *lbitmap, const char *ltext, const char *rtext, const uint8_t *rbitmap);

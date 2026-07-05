@@ -11,10 +11,11 @@ ROOT="$(cd "$DIR/../../.." && pwd)"
 CC="${CC:-cc}"
 BIN="$DIR/test_remotes_ui"
 
-"$CC" -std=c11 -Wall -Wextra -O0 -g -DM1_CARD_HOST_TEST \
+"$CC" -std=c11 -Wall -Wextra -O0 -g -DM1_CARD_HOST_TEST -DM1_TX_HOST_TEST \
 	-I"$DIR" -I"$ROOT/m1_csrc" \
 	"$DIR/test_remotes_ui.c" \
 	"$ROOT/m1_csrc/m1_card_list_layout.c" \
+	"$ROOT/m1_csrc/m1_tx_status_layout.c" \
 	-o "$BIN"
 
 "$BIN"
