@@ -1,5 +1,8 @@
 # Compiled host-test binaries and objects — never committed.
-test_flipper_ir
+# Test binaries have no extension; keep the sources (*.c/*.h) tracked.
+test_*
 validate_ir
+!*.c
+!*.h
 *.o
 *.ir
