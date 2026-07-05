@@ -936,7 +936,7 @@ void startup_info_screen_display(const char *scr_text)
 		u8g2_DrawHLine(&m1_u8g2, 12, footer_y - 2, 104);
 		u8g2_DrawXBMP(&m1_u8g2, logo_x, 4, 40, 32, m1_logo_40x32);
 
-		snprintf(fw_ver, sizeof(fw_ver), "%s rfx", T1000_VERSION_STRING);
+		snprintf(fw_ver, sizeof(fw_ver), "%s next", T1000_VERSION_STRING);
 
 		u8g2_SetFont(&m1_u8g2, M1_POWERUP_LOGO_FONT);
 		text_w = u8g2_GetStrWidth(&m1_u8g2, M1_PRODUCT_NAME);
