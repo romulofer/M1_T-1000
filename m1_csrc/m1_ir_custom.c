@@ -481,42 +481,34 @@ static bool ir_custom_append_raw(const char *path, flipper_ir_signal_t *sig)
 	return ok;
 }
 
+/* m1_card_list providers for the per-remote action menu (Play/Learn/Edit). */
+static const char *ir_custom_remote_menu_label(void *ctx, uint16_t idx)
+{
+	(void)ctx;
+	return s_remote_menu_items[idx];
+}
+
+static const uint8_t *ir_custom_remote_menu_icon(void *ctx, uint16_t idx)
+{
+	(void)ctx;
+	switch (idx)
+	{
+	case 0:  return play_8x8;    /* Play Buttons */
+	case 2:  return pencil_8x8;  /* Edit Buttons */
+	default: return NULL;        /* Learn Button: no 8x8 capture glyph */
+	}
+}
+
 /*============================================================================*/
 /**
- * @brief  Draw the per-remote action menu (Play Buttons / Learn Button).
+ * @brief  Draw the per-remote action menu (Play Buttons / Learn / Edit).
  */
 static void ir_custom_draw_remote_menu(const char *name, uint8_t selection)
 {
-	uint8_t i;
-
-	m1_u8g2_firstpage();
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-
-	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-	u8g2_DrawStr(&m1_u8g2, 2, 10, (name != NULL) ? name : "Remote");
-	u8g2_DrawHLine(&m1_u8g2, 0, IR_CUSTOM_LIST_HEADER_H, 128);
-
-	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	for (i = 0; i < IR_CUSTOM_REMOTE_MENU_COUNT; i++)
-	{
-		uint8_t y = (uint8_t)(IR_CUSTOM_LIST_START_Y + (i * IR_CUSTOM_LIST_ITEM_H));
-
-		if (i == selection)
-		{
-			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-			u8g2_DrawBox(&m1_u8g2, 0, y, 128, IR_CUSTOM_LIST_ITEM_H);
-			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
-			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_remote_menu_items[i]);
-			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-		}
-		else
-		{
-			u8g2_DrawStr(&m1_u8g2, 4, y + 8, s_remote_menu_items[i]);
-		}
-	}
-
-	m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", "Select", arrowright_8x8);
-	m1_u8g2_nextpage();
+	m1_card_list((name != NULL) ? name : "Remote",
+	             IR_CUSTOM_REMOTE_MENU_COUNT, selection, IR_CUSTOM_LIST_VISIBLE,
+	             ir_custom_remote_menu_label, ir_custom_remote_menu_icon, NULL,
+	             arrowleft_8x8, "Back", "Select", arrowright_8x8);
 }
 
 /*============================================================================*/
