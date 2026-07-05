@@ -899,7 +899,7 @@ void bluetooth_scan(void)
 	{
 		m1_u8g2_firstpage();
 		u8g2_DrawStr(&m1_u8g2, 6, 15, "Initializing...");
-		u8g2_DrawXBMP(&m1_u8g2, M1_LCD_DISPLAY_WIDTH/2 - 18/2, M1_LCD_DISPLAY_HEIGHT/2 - 2, 18, 32, hourglass_18x32);
+		m1_please_wait_box(&m1_u8g2); // centered "Please wait..." overlay
 		m1_u8g2_nextpage();
 		esp32_main_init();
 	}
@@ -910,7 +910,7 @@ void bluetooth_scan(void)
 	if ( get_esp32_main_init_status() )
 	{
 		u8g2_DrawStr(&m1_u8g2, 6, 15, "Scanning BLE...");
-		u8g2_DrawXBMP(&m1_u8g2, M1_LCD_DISPLAY_WIDTH/2 - 18/2, M1_LCD_DISPLAY_HEIGHT/2 - 2, 18, 32, hourglass_18x32);
+		m1_please_wait_box(&m1_u8g2); // centered "Please wait..." overlay
 		m1_u8g2_nextpage();
 
 		app_req.cmd_timeout_sec = M1_BLE_SCANNING_TIME;
@@ -1014,7 +1014,7 @@ void bluetooth_advertise(void)
 	{
 		m1_u8g2_firstpage();
 		u8g2_DrawStr(&m1_u8g2, 6, 15, "Initializing...");
-		u8g2_DrawXBMP(&m1_u8g2, M1_LCD_DISPLAY_WIDTH/2 - 18/2, M1_LCD_DISPLAY_HEIGHT/2 - 2, 18, 32, hourglass_18x32);
+		m1_please_wait_box(&m1_u8g2); // centered "Please wait..." overlay
 		m1_u8g2_nextpage();
 		esp32_main_init();
 	}
@@ -1023,7 +1023,7 @@ void bluetooth_advertise(void)
 	if ( get_esp32_main_init_status() )
 	{
 		u8g2_DrawStr(&m1_u8g2, 6, 15, "Advertising...");
-		u8g2_DrawXBMP(&m1_u8g2, M1_LCD_DISPLAY_WIDTH/2 - 18/2, M1_LCD_DISPLAY_HEIGHT/2 - 2, 18, 32, hourglass_18x32);
+		m1_please_wait_box(&m1_u8g2); // centered "Please wait..." overlay
 		m1_u8g2_nextpage();
 
 		app_req.cmd_timeout_sec = M1_BLE_SCANNING_TIME;
@@ -1094,7 +1094,7 @@ void bluetooth_advertise(void)
 				if ( this_button_status.event[BUTTON_BACK_KP_ID]==BUTTON_EVENT_CLICK
 				  || this_button_status.event[BUTTON_LEFT_KP_ID]==BUTTON_EVENT_CLICK )
 				{
-					u8g2_DrawXBMP(&m1_u8g2, M1_LCD_DISPLAY_WIDTH - 18*2, M1_LCD_DISPLAY_HEIGHT/2 - 2, 18, 32, hourglass_18x32);
+					m1_please_wait_box(&m1_u8g2); // centered "Please wait..." overlay
 					m1_u8g2_nextpage();
 
 					app_req.cmd_timeout_sec = M1_BLE_SCANNING_TIME;
