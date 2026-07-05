@@ -384,6 +384,13 @@ static const char *ir_custom_item_text(uint16_t idx)
 	return s_remote_names[idx - 1];
 }
 
+/* m1_card_list label provider: the My-Remotes item text at absolute index. */
+static const char *ir_custom_list_label(void *ctx, uint16_t idx)
+{
+	(void)ctx;
+	return ir_custom_item_text(idx);
+}
+
 /*============================================================================*/
 /**
  * @brief  Draw the My-Remotes manager list ("[+ New Remote]" then remotes).
@@ -392,53 +399,11 @@ static const char *ir_custom_item_text(uint16_t idx)
  */
 static void ir_custom_draw_list(uint16_t selection, uint16_t total)
 {
-	uint16_t start_idx;
-	uint16_t visible;
-	uint16_t i;
-	uint8_t  y;
+	const char *action = (selection == 0) ? "New" : "Open";
 
-	if (selection < IR_CUSTOM_LIST_VISIBLE)
-		start_idx = 0;
-	else
-		start_idx = selection - IR_CUSTOM_LIST_VISIBLE + 1;
-
-	visible = total - start_idx;
-	if (visible > IR_CUSTOM_LIST_VISIBLE)
-		visible = IR_CUSTOM_LIST_VISIBLE;
-
-	m1_u8g2_firstpage();
-	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-
-	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
-	u8g2_DrawStr(&m1_u8g2, 2, 10, "Custom Remotes");
-	u8g2_DrawHLine(&m1_u8g2, 0, IR_CUSTOM_LIST_HEADER_H, 128);
-
-	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	for (i = 0; i < visible; i++)
-	{
-		uint16_t idx = start_idx + i;
-		y = IR_CUSTOM_LIST_START_Y + (i * IR_CUSTOM_LIST_ITEM_H);
-
-		if (idx == selection)
-		{
-			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-			u8g2_DrawBox(&m1_u8g2, 0, y, 128, IR_CUSTOM_LIST_ITEM_H);
-			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
-			u8g2_DrawStr(&m1_u8g2, 4, y + 8, ir_custom_item_text(idx));
-			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
-		}
-		else
-		{
-			u8g2_DrawStr(&m1_u8g2, 4, y + 8, ir_custom_item_text(idx));
-		}
-	}
-
-	{
-		const char *action = (selection == 0) ? "New" : "Open";
-		m1_draw_bottom_bar(&m1_u8g2, arrowleft_8x8, "Back", action, arrowright_8x8);
-	}
-
-	m1_u8g2_nextpage();
+	m1_card_list("Custom Remotes", total, selection, IR_CUSTOM_LIST_VISIBLE,
+	             ir_custom_list_label, NULL, NULL,
+	             arrowleft_8x8, "Back", action, arrowright_8x8);
 }
 
 /*============================================================================*/

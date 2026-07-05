@@ -25,6 +25,7 @@
 #include "m1_compile_cfg.h"
 #include "m1_display.h"
 #include "m1_please_wait_layout.h"
+#include "m1_card_list_layout.h"
 #include "m1_sdcard.h"
 #include "m1_wifi.h"
 #include "m1_system.h"
@@ -928,6 +929,84 @@ void m1_please_wait_box(u8g2_t *u8g2)
 
 	// leave draw color = TXT for the caller
 	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+}
+
+/*============================================================================*/
+/**
+  * @brief Draw a full-screen rounded-card list (header, scrolled icon rows,
+  *        scrollbar, bottom bar). Thin renderer over m1_card_list_layout().
+  * @param title       header title (NULL -> blank)
+  * @param count       total item count
+  * @param selection   highlighted item index
+  * @param visible_max max rows shown at once
+  * @param label_fn    returns the label for an absolute index (required)
+  * @param icon_fn     returns the 8x8 glyph for an index, or NULL (optional)
+  * @param ctx         opaque pointer passed to the callbacks
+  * @param bar_licon/bar_ltext/bar_rtext/bar_ricon  bottom-bar content
+  * @retval None
+  */
+/*============================================================================*/
+void m1_card_list(const char *title,
+                  uint16_t count,
+                  uint16_t selection,
+                  uint16_t visible_max,
+                  m1_card_label_fn label_fn,
+                  m1_card_icon_fn icon_fn,
+                  void *ctx,
+                  const uint8_t *bar_licon, const char *bar_ltext,
+                  const char *bar_rtext, const uint8_t *bar_ricon)
+{
+	S_M1_CardList_Window win = m1_card_list_window(count, selection, visible_max);
+	int list_has_icons = (icon_fn != NULL);
+	uint16_t i;
+
+	m1_u8g2_firstpage();
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+
+	/* Header: title + rule (matches the previous list draws). */
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(&m1_u8g2, 2, 10, (title != NULL) ? title : "");
+	u8g2_DrawHLine(&m1_u8g2, 0, M1_CARD_HEADER_H, 128);
+
+	/* Card rows. */
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	for (i = 0; i < win.visible; i++)
+	{
+		uint16_t idx = (uint16_t)(win.start_idx + i);
+		S_M1_CardList_Row row = m1_card_list_row((u8g2_uint_t)i, list_has_icons);
+		const uint8_t *icon = list_has_icons ? icon_fn(ctx, idx) : NULL;
+		const char *label = label_fn(ctx, idx);
+		int selected = (idx == selection);
+
+		if (selected)
+		{
+			/* Filled rounded card; content drawn in background color. */
+			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+			u8g2_DrawRBox(&m1_u8g2, row.x, row.y, row.w, row.h, M1_CARD_RADIUS);
+			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_BG);
+		}
+
+		if (icon != NULL)
+			u8g2_DrawXBMP(&m1_u8g2, row.icon_x, row.icon_y,
+			              M1_CARD_ICON_W, M1_CARD_ICON_H, icon);
+		if (label != NULL)
+			u8g2_DrawStr(&m1_u8g2, row.label_x, row.label_baseline, label);
+
+		if (selected)
+			u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+	}
+
+	/* Proportional scroll thumb (only when the list overflows). */
+	{
+		S_M1_CardList_Scrollbar sb =
+			m1_card_list_scrollbar(count, win.start_idx, visible_max);
+		if (sb.visible)
+			u8g2_DrawBox(&m1_u8g2, sb.x, sb.y, sb.w, sb.h);
+	}
+
+	m1_draw_bottom_bar(&m1_u8g2, bar_licon, bar_ltext, bar_rtext, bar_ricon);
+
+	m1_u8g2_nextpage();
 }
 
 /* Body geometry for the readable message box (128x64). The text column sits on

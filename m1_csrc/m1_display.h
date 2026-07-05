@@ -135,6 +135,9 @@ extern const uint8_t arrowright_10x10[];
 extern const uint8_t arrowright_8x8[];
 extern const uint8_t arrowleft_8x8[];
 extern const uint8_t arrowdown_8x8[];
+extern const uint8_t play_8x8[];
+extern const uint8_t pencil_8x8[];
+extern const uint8_t trash_8x8[];
 extern const uint8_t fb_m1_icon_folder[];
 extern const uint8_t fb_m1_icon_file[];
 extern const uint8_t remote_48x25[];
@@ -175,6 +178,27 @@ void m1_info_box_display_init(bool high_box);
 void m1_info_box_display_clear(void);
 void m1_info_box_display_draw(uint8_t box_row, const uint8_t *ptext);
 void m1_please_wait_box(u8g2_t *u8g2);
+
+/* Row-content providers for m1_card_list(). Both receive the caller ctx and the
+ * absolute item index. If icon_fn is NULL the list draws no icon column; when it
+ * is provided the column is reserved for every row and each row draws the 8x8
+ * glyph it returns (or nothing for a NULL return, keeping labels aligned). */
+typedef const char    *(*m1_card_label_fn)(void *ctx, uint16_t idx);
+typedef const uint8_t *(*m1_card_icon_fn)(void *ctx, uint16_t idx);
+
+/* Full-screen rounded-card list: header (title + rule), scrolled card rows with
+ * an optional 8x8 left icon, a proportional scrollbar, and a bottom action bar.
+ * Owns m1_u8g2_firstpage()..m1_u8g2_nextpage(). visible_max is the max rows
+ * shown at once (e.g. IR_CUSTOM_LIST_VISIBLE). See m1_card_list_layout.h. */
+void m1_card_list(const char *title,
+                  uint16_t count,
+                  uint16_t selection,
+                  uint16_t visible_max,
+                  m1_card_label_fn label_fn,
+                  m1_card_icon_fn icon_fn,
+                  void *ctx,
+                  const uint8_t *bar_licon, const char *bar_ltext,
+                  const char *bar_rtext, const uint8_t *bar_ricon);
 uint8_t m1_message_box(u8g2_t *u8g2, const char *title1, const char *title2, const char *title3, const char *buttons);
 uint8_t m1_message_box_choice(u8g2_t *u8g2, const char *title1, const char *title2, const char *title3, const char *buttons);
 void m1_draw_bottom_bar(u8g2_t *u8g2, const uint8_t *lbitmap, const char *ltext, const char *rtext, const uint8_t *rbitmap);
