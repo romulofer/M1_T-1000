@@ -637,7 +637,7 @@ void storage_mount(void)
 						u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
 						u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
 						u8g2_DrawStr(&m1_u8g2, 30, 10, "Mounting...");
-				    	u8g2_DrawXBMP(&m1_u8g2, 55, 16, 18, 32, hourglass_18x32); // Draw icon
+				    	m1_please_wait_box(&m1_u8g2); // centered "Please wait..." overlay
 				    	m1_u8g2_nextpage(); // Update display RAM
 
 				    	m1_sdcard_mount();
@@ -759,7 +759,7 @@ void storage_unmount(void)
 						u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
 						u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
 						u8g2_DrawStr(&m1_u8g2, 30, 10, "Unmounting...");
-				    	u8g2_DrawXBMP(&m1_u8g2, 55, 16, 18, 32, hourglass_18x32); // Draw icon
+				    	m1_please_wait_box(&m1_u8g2); // centered "Please wait..." overlay
 				    	m1_u8g2_nextpage(); // Update display RAM
 
 				    	m1_sdcard_unmount();
@@ -974,7 +974,7 @@ void storage_format(void)
 						u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
 						u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
 						u8g2_DrawStr(&m1_u8g2, 30, 10, "Formatting...");
-				    	u8g2_DrawXBMP(&m1_u8g2, 55, 16, 18, 32, hourglass_18x32); // Draw icon
+				    	m1_please_wait_box(&m1_u8g2); // centered "Please wait..." overlay
 				    	m1_u8g2_nextpage(); // Update display RAM
 				    	if ( m1_sdcard_format()!=FR_OK )
 				    	{

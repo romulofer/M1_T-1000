@@ -21,6 +21,14 @@ All notable changes to the M1 T-1000 firmware will be documented in this file.
     `.sgh`/`.sub` output are untouched. The dBm→bar mapping is a pure helper with
     host unit tests (`tools/host_test/test_subghz_rssi.c`).
   - See `documentation/subghz_rssi_bar.md`.
+- **Unified "Please wait…" box for blocking screens.** A single reusable helper
+  `m1_please_wait_box()` replaces the hourglass glyph that was drawn inline at
+  inconsistent positions across the firmware updaters, SD storage, and BLE. Every
+  indeterminate-wait screen now renders the same centered, rounded, drop-shadowed
+  box with the hourglass and `Please wait...`. The BLE status panels and the ESP32
+  flash-progress screen (live %) keep their richer displays. Geometry is covered
+  by a host unit test (`tools/host_test/test_please_wait_box`). See
+  `documentation/please_wait_box.md`.
 - **Infrared → Custom Remotes: build, learn, replay, and edit custom IR
   remotes on-device.** User remotes are standard Flipper `.ir` files at
   `0:/IR/*.ir`:

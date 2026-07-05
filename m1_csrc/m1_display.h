@@ -28,6 +28,8 @@
 
 #define M1_DISP_RUN_MENU_FONT_B			u8g2_font_courB08_tf // small bold font, //u8g2_font_resoledbold_tr: small bold font
 
+#define M1_PLEASE_WAIT_FONT				M1_DISP_RUN_MENU_FONT_B // caption font for the centered "Please wait..." box
+
 #define M1_DISP_RUN_ERROR_FONT_1B		u8g2_font_Terminal_tr // bold larger clear
 #define M1_DISP_RUN_ERROR_FONT_2B		u8g2_font_lubB08_tf // Bold font, larger size, likely size 10
 
@@ -172,6 +174,7 @@ void m1_gui_let_update_fw(void);
 void m1_info_box_display_init(bool high_box);
 void m1_info_box_display_clear(void);
 void m1_info_box_display_draw(uint8_t box_row, const uint8_t *ptext);
+void m1_please_wait_box(u8g2_t *u8g2);
 uint8_t m1_message_box(u8g2_t *u8g2, const char *title1, const char *title2, const char *title3, const char *buttons);
 uint8_t m1_message_box_choice(u8g2_t *u8g2, const char *title1, const char *title2, const char *title3, const char *buttons);
 void m1_draw_bottom_bar(u8g2_t *u8g2, const uint8_t *lbitmap, const char *ltext, const char *rtext, const uint8_t *rbitmap);

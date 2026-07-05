@@ -23,6 +23,7 @@
 #include "m1_branding.h"
 #include "m1_compile_cfg.h"
 #include "m1_display.h"
+#include "m1_please_wait_layout.h"
 #include "m1_sdcard.h"
 #include "m1_wifi.h"
 #include "m1_system.h"
@@ -893,6 +894,40 @@ void m1_info_box_display_draw(uint8_t box_row, const uint8_t *ptext)
   * @retval
   */
 /*============================================================================*/
+/*============================================================================*/
+/**
+  * @brief Draw the centered, rounded, drop-shadowed "Please wait..." box on top
+  *        of the CURRENT frame buffer (overlay). Does NOT clear or flush — the
+  *        caller owns m1_u8g2_firstpage() (context draw) and m1_u8g2_nextpage()
+  *        (send). Restores the draw color to M1_DISP_DRAW_COLOR_TXT on return.
+  * @param u8g2 Display handle
+  * @retval None
+  */
+/*============================================================================*/
+void m1_please_wait_box(u8g2_t *u8g2)
+{
+	u8g2_SetFont(u8g2, M1_PLEASE_WAIT_FONT);
+	u8g2_uint_t tw = u8g2_GetStrWidth(u8g2, "Please wait...");
+	S_M1_PleaseWait_Layout L = m1_please_wait_layout(
+		M1_LCD_DISPLAY_WIDTH, M1_LCD_DISPLAY_HEIGHT, tw, u8g2_GetAscent(u8g2));
+
+	// 1. shadow: solid rounded box offset down-right
+	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_DrawRBox(u8g2, L.x + M1_PW_SHADOW, L.y + M1_PW_SHADOW, L.w, L.h, M1_PW_RADIUS);
+	// 2. fill interior with background so it masks content beneath
+	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_BG);
+	u8g2_DrawRBox(u8g2, L.x, L.y, L.w, L.h, M1_PW_RADIUS);
+	// 3. border
+	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_DrawRFrame(u8g2, L.x, L.y, L.w, L.h, M1_PW_RADIUS);
+	// 4. hourglass + caption, in TXT color
+	u8g2_DrawXBMP(u8g2, L.icon_x, L.icon_y, M1_PW_ICON_W, M1_PW_ICON_H, hourglass_18x32);
+	u8g2_DrawStr(u8g2, L.text_x, L.text_baseline, "Please wait...");
+
+	// leave draw color = TXT for the caller
+	u8g2_SetDrawColor(u8g2, M1_DISP_DRAW_COLOR_TXT);
+}
+
 uint8_t m1_message_box(u8g2_t *u8g2, const char *title1, const char *title2, const char *title3, const char *buttons)
 {
 
