@@ -861,6 +861,8 @@ static uint8_t map_flipper_protocol(const char *name)
 	 * Must stay in sync with flipper_ir.c ir_proto_table[]. */
 	if (strcmp(name, "NEC") == 0 || strcmp(name, "NECext") == 0)
 		return IRMP_NEC_PROTOCOL;
+	/* LIMITATION: IRSND has no Samsung48 TX support (compiled out) -> no TX.
+	 * No shipped .ir uses it. See docs/IR_TX_AUDIT.md. */
 	if (strcmp(name, "Samsung48") == 0)
 		return IRMP_SAMSUNG48_PROTOCOL;
 	if (strcmp(name, "Samsung32") == 0 || strcmp(name, "Samsung") == 0)
@@ -880,6 +882,8 @@ static uint8_t map_flipper_protocol(const char *name)
 		return IRMP_DENON_PROTOCOL;
 	if (strcmp(name, "JVC") == 0)
 		return IRMP_JVC_PROTOCOL;
+	/* LIMITATION: LGAIR is the LG *air-conditioner* protocol, not an LG TV remote
+	 * -> wrong on-air frame for a TV. No shipped .ir uses it. See docs/IR_TX_AUDIT.md. */
 	if (strcmp(name, "LG") == 0)
 		return IRMP_LGAIR_PROTOCOL;
 	if (strcmp(name, "Pioneer") == 0)
@@ -890,6 +894,9 @@ static uint8_t map_flipper_protocol(const char *name)
 		return IRMP_BOSE_PROTOCOL;
 	if (strcmp(name, "Nokia") == 0)
 		return IRMP_NOKIA_PROTOCOL;
+	/* LIMITATION: RCA is mis-mapped to RCCAR (RC *car*), which IRSND has compiled
+	 * out (IRSND_SUPPORT_RCCAR_PROTOCOL==0) -> RCA transmits nothing. Needs raw
+	 * conversion. See docs/IR_TX_AUDIT.md. */
 	if (strcmp(name, "RCA") == 0)
 		return IRMP_RCCAR_PROTOCOL;
 	if (strcmp(name, "RCMM") == 0)

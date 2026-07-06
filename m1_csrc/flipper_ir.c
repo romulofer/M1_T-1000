@@ -52,18 +52,18 @@ static const ir_proto_map_t ir_proto_table[] = {
 	{ "SIRC15",     IRMP_SIRCS_PROTOCOL },        /* 1  (15-bit mode) */
 	{ "SIRC20",     IRMP_SIRCS_PROTOCOL },        /* 1  (20-bit mode) */
 	{ "Kaseikyo",   IRMP_KASEIKYO_PROTOCOL },     /* 5  */
-	{ "RCA",        IRMP_RCCAR_PROTOCOL },         /* 19 */
+	{ "RCA",        IRMP_RCCAR_PROTOCOL },         /* 19 — LIMITATION: mis-map (RC *car*); IRSND RCCAR compiled out => no TX. docs/IR_TX_AUDIT.md */
 	{ "Pioneer",    IRMP_NEC_PROTOCOL },           /* Pioneer uses NEC encoding */
 	{ "Denon",      IRMP_DENON_PROTOCOL },         /* 8  */
 	{ "JVC",        IRMP_JVC_PROTOCOL },           /* 20 */
 	{ "Sharp",      IRMP_DENON_PROTOCOL },         /* 8  (Sharp uses same as Denon) */
 	{ "Panasonic",  IRMP_KASEIKYO_PROTOCOL },      /* 5  (Panasonic uses Kaseikyo) */
-	{ "LG",         IRMP_LGAIR_PROTOCOL },         /* 40 */
+	{ "LG",         IRMP_LGAIR_PROTOCOL },         /* 40 — LIMITATION: LG *air-con*, not LG TV; wrong frame. No DB file uses it. docs/IR_TX_AUDIT.md */
 	{ "Samsung",    IRMP_SAMSUNG32_PROTOCOL },     /* 10 (Flipper has no separate Samsung; all are Samsung32) */
 	{ "Apple",      IRMP_APPLE_PROTOCOL },         /* 11 */
 	{ "Nokia",      IRMP_NOKIA_PROTOCOL },         /* 16 */
 	{ "Bose",       IRMP_BOSE_PROTOCOL },          /* 31 */
-	{ "Samsung48",  IRMP_SAMSUNG48_PROTOCOL },    /* 41 */
+	{ "Samsung48",  IRMP_SAMSUNG48_PROTOCOL },    /* 41 — LIMITATION: IRSND no TX support (compiled out). No DB file uses it. docs/IR_TX_AUDIT.md */
 	{ "RCMM",       IRMP_RCMM32_PROTOCOL },       /* 36 */
 	{ NULL,         IRMP_UNKNOWN_PROTOCOL }
 };
