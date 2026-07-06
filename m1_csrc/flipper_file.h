@@ -20,6 +20,17 @@
 #define FF_KEY_MAX_LEN     64
 #define FF_VALUE_MAX_LEN   448
 
+/*
+ * Read-ahead chunk for the buffered line reader. ff_read_line() refills its
+ * window with a single f_read() of this many bytes instead of FatFs f_gets()'s
+ * one-f_read-per-character (~8.5k 1-byte reads for an 8.5 KB .ir file — the
+ * source of the Universal Remotes panel stall). Kept modest at 256 because
+ * flipper_file_t is stack-allocated at several call sites and already ~1 KB
+ * (line[512] + value[448] + key[64]); 256 is a bounded bump that stays within
+ * task-stack headroom while collapsing the per-character read overhead.
+ */
+#define FF_READ_CHUNK      256
+
 typedef struct {
 	FIL    fh;
 	char   line[FF_LINE_BUF_LEN];
@@ -27,6 +38,13 @@ typedef struct {
 	char   value[FF_VALUE_MAX_LEN];
 	bool   is_open;
 	bool   eof;
+	/* Buffered-reader state: ff_read_line() assembles lines out of buf[],
+	 * refilled one FF_READ_CHUNK block at a time. buf_pos..buf_len is the
+	 * unconsumed window; both are 0 after ff_open*'s memset, which reads as
+	 * "empty -> refill on the first read". */
+	BYTE   buf[FF_READ_CHUNK];
+	UINT   buf_len;   /* valid bytes currently in buf                 */
+	UINT   buf_pos;   /* next unread byte in buf (== buf_len => empty) */
 } flipper_file_t;
 
 /* Open a file for reading */

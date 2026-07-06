@@ -29,6 +29,7 @@
 static void ff_strip_trailing_whitespace(char *str);
 static bool ff_line_is_comment(const char *line);
 static bool ff_line_is_empty(const char *line);
+static bool ff_fill_line(flipper_file_t *ctx);
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
 
@@ -94,6 +95,8 @@ bool ff_open(flipper_file_t *ctx, const char *path)
 	if (ctx == NULL || path == NULL)
 		return false;
 
+	/* Zeroes the read-ahead cursor too (buf_len = buf_pos = 0 => refill on the
+	 * first ff_read_line); no separate buffer init is needed. */
 	memset(ctx, 0, sizeof(flipper_file_t));
 
 	res = f_open(&ctx->fh, path, FA_READ | FA_OPEN_EXISTING);
@@ -176,6 +179,50 @@ void ff_close(flipper_file_t *ctx)
 
 /*============================================================================*/
 /**
+ * @brief  Assemble the next physical line into ctx->line from the buffered
+ *         reader, reproducing f_gets(ctx->line, FF_LINE_BUF_LEN, &ctx->fh)
+ *         byte-for-byte: copy characters until a newline has been stored, until
+ *         FF_LINE_BUF_LEN-1 characters have been copied (an over-long line then
+ *         continues on the next call, exactly like f_gets), or until EOF. The
+ *         read-ahead window is refilled one FF_READ_CHUNK block at a time with a
+ *         single f_read(), instead of FatFs f_gets()'s one f_read per character.
+ * @param  ctx  flipper file context (buffered read state lives in ctx->buf*)
+ * @return true if at least one character was stored (a line is available);
+ *         false only at EOF with nothing read — the f_gets() NULL case.
+ */
+static bool ff_fill_line(flipper_file_t *ctx)
+{
+	int i = 0;   /* chars stored; capped at FF_LINE_BUF_LEN-1 like f_gets */
+
+	while (i < FF_LINE_BUF_LEN - 1)
+	{
+		BYTE c;
+
+		/* Refill the read-ahead window with a single f_read when it drains. */
+		if (ctx->buf_pos >= ctx->buf_len)
+		{
+			UINT br = 0;
+
+			if (f_read(&ctx->fh, ctx->buf, FF_READ_CHUNK, &br) != FR_OK || br == 0)
+				break;   /* EOF or error: stop (whether a line exists is i > 0) */
+
+			ctx->buf_len = br;
+			ctx->buf_pos = 0;
+		}
+
+		c = ctx->buf[ctx->buf_pos++];
+		ctx->line[i++] = (char)c;
+
+		if (c == '\n')   /* f_gets stores the newline, then stops */
+			break;
+	}
+
+	ctx->line[i] = '\0';
+	return (i > 0);
+}
+
+/*============================================================================*/
+/**
  * @brief  Read the next non-empty, non-comment line from the file.
  *         Comment lines starting with '#' are detected and cause
  *         ff_is_separator() to return true. The line is stored in ctx->line.
@@ -189,7 +236,7 @@ bool ff_read_line(flipper_file_t *ctx)
 
 	for (;;)
 	{
-		if (f_gets(ctx->line, FF_LINE_BUF_LEN, &ctx->fh) == NULL)
+		if (!ff_fill_line(ctx))
 		{
 			ctx->eof = true;
 			return false;

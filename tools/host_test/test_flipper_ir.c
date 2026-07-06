@@ -723,6 +723,101 @@ static void test_read_empty_and_header_only(void)
 	f_unlink(TEST_PATH);
 }
 
+/*----------------------------------------------------------------------------*
+ * Task 3 — chunk-boundary cases specific to the buffered reader (reference
+ * FF_READ_CHUNK). They prove a refill in the middle of a line reassembles it
+ * without corruption or loss.
+ *----------------------------------------------------------------------------*/
+
+/* A KV value longer than FF_READ_CHUNK (but within FF_LINE_BUF_LEN) forces a
+ * refill partway through the value; it must reassemble intact. A short leading
+ * line makes the 256-byte crossing land in the middle of the value. */
+static void test_read_field_straddles_chunk(void)
+{
+	flipper_file_t ff;
+	FILE *w;
+	int   i;
+	const int vlen = FF_READ_CHUNK + 44;   /* 300: value overruns one chunk */
+
+	printf("test_read_field_straddles_chunk\n");
+	f_unlink(TEST_PATH);
+
+	w = fopen(TEST_PATH, "wb");
+	CHECK(w != NULL, "straddle: seed open");
+	fputs("a: b\n", w);            /* short first line -> crossing lands mid-value */
+	fputs("key: ", w);
+	for (i = 0; i < vlen; i++)
+		fputc('v', w);
+	fputc('\n', w);
+	fputs("tail: end\n", w);
+	fclose(w);
+
+	CHECK(ff_open(&ff, TEST_PATH), "straddle: open");
+
+	CHECK(ff_read_line(&ff), "straddle: read 1");
+	CHECK(ff_parse_kv(&ff), "straddle: read 1 kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "a", "straddle: first key");
+
+	/* The long value crosses the 256-byte refill boundary intact. */
+	CHECK(ff_read_line(&ff), "straddle: read 2 (long value)");
+	CHECK(ff_parse_kv(&ff), "straddle: read 2 kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "key", "straddle: long-line key");
+	CHECK_EQ_INT((long)strlen(ff_get_value(&ff)), vlen, "straddle: full value length");
+	CHECK(strspn(ff_get_value(&ff), "v") == (size_t)vlen,
+	      "straddle: value all 'v' (no corruption across refill)");
+
+	CHECK(ff_read_line(&ff), "straddle: read 3");
+	CHECK(ff_parse_kv(&ff), "straddle: read 3 kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "tail", "straddle: tail key");
+	CHECK_EQ_STR(ff_get_value(&ff), "end", "straddle: tail value");
+
+	CHECK(!ff_read_line(&ff), "straddle: eof");
+
+	ff_close(&ff);
+	f_unlink(TEST_PATH);
+}
+
+/* A line whose content length equals FF_READ_CHUNK exactly: the chunk drains
+ * precisely at the line's last content byte and the newline lands in the next
+ * refill. The parsed value must still be intact. */
+static void test_read_line_equals_chunk(void)
+{
+	flipper_file_t ff;
+	FILE *w;
+	int   i;
+	const int vlen = FF_READ_CHUNK - 3;    /* "k: " (3) + vlen == FF_READ_CHUNK */
+
+	printf("test_read_line_equals_chunk\n");
+	f_unlink(TEST_PATH);
+
+	w = fopen(TEST_PATH, "wb");
+	CHECK(w != NULL, "eqchunk: seed open");
+	fputs("k: ", w);               /* 3 bytes */
+	for (i = 0; i < vlen; i++)
+		fputc('x', w);             /* content length now == FF_READ_CHUNK */
+	fputc('\n', w);                /* newline is the byte after the chunk */
+	fputs("z: 9\n", w);
+	fclose(w);
+
+	CHECK(ff_open(&ff, TEST_PATH), "eqchunk: open");
+
+	CHECK(ff_read_line(&ff), "eqchunk: read 1 (== chunk)");
+	CHECK(ff_parse_kv(&ff), "eqchunk: read 1 kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "k", "eqchunk: key");
+	CHECK_EQ_INT((long)strlen(ff_get_value(&ff)), vlen, "eqchunk: value length");
+	CHECK(strspn(ff_get_value(&ff), "x") == (size_t)vlen, "eqchunk: value all 'x'");
+
+	CHECK(ff_read_line(&ff), "eqchunk: read 2 (line after exact boundary)");
+	CHECK(ff_parse_kv(&ff), "eqchunk: read 2 kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "z", "eqchunk: next key");
+	CHECK_EQ_STR(ff_get_value(&ff), "9", "eqchunk: next value");
+
+	CHECK(!ff_read_line(&ff), "eqchunk: eof");
+
+	ff_close(&ff);
+	f_unlink(TEST_PATH);
+}
+
 int main(void)
 {
 	printf("== Flipper .ir host round-trip tests ==\n");
@@ -733,6 +828,8 @@ int main(void)
 	test_read_no_trailing_newline();
 	test_read_comment_returned_blanks_skipped();
 	test_read_empty_and_header_only();
+	test_read_field_straddles_chunk();
+	test_read_line_equals_chunk();
 	test_append_roundtrip();
 	test_rewrite_edit();
 	test_create_empty_remote();
