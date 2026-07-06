@@ -60,6 +60,7 @@ static int g_failures = 0;
 
 #define TEST_PATH   "m1_flipper_roundtrip.ir"
 #define FREAD_PATH  "m1_fread_micro.ir"
+#define BIGPATH     "m1_perf_big.ir"
 
 /* Known raw sample stream (alternating mark/space microseconds). */
 static const int32_t k_raw_samples[] = {
@@ -818,6 +819,63 @@ static void test_read_line_equals_chunk(void)
 	f_unlink(TEST_PATH);
 }
 
+/*----------------------------------------------------------------------------*
+ * Task 4 — perf guard. With the buffered reader in place, a full parse of a
+ * tv.ir-sized (~90-record) file must issue O(bytes / FF_READ_CHUNK) f_read
+ * calls, never one per byte. This fails loudly if ff_read_line ever reverts to
+ * a per-character read.
+ *----------------------------------------------------------------------------*/
+static void test_read_call_count_is_chunked(void)
+{
+	flipper_file_t      ff;
+	flipper_ir_signal_t sig;
+	FILINFO             fno;
+	char                nm[16];
+	int                 i;
+	const int           NREC = 90;
+	unsigned long       calls, ceil_chunks, bytes;
+	uint16_t            n;
+
+	printf("test_read_call_count_is_chunked\n");
+	f_unlink(BIGPATH);
+
+	/* Synthesize a ~90-record parsed .ir (tv.ir-sized). */
+	CHECK(ff_open_write(&ff, BIGPATH), "perf: open_write");
+	CHECK(flipper_ir_write_header(&ff), "perf: header");
+	for (i = 0; i < NREC; i++)
+	{
+		snprintf(nm, sizeof(nm), "Fn_%02d", i);
+		make_parsed(&sig, nm, IRMP_NEC_PROTOCOL,
+		            (uint16_t)(0x0700 + i), (uint16_t)(0x00E0 + i));
+		CHECK(flipper_ir_write_signal(&ff, &sig), "perf: write record");
+	}
+	ff_close(&ff);
+
+	CHECK(f_stat(BIGPATH, &fno) == FR_OK, "perf: stat file");
+	bytes = (unsigned long)fno.fsize;
+
+	/* Full parse to EOF under the read-call counter. */
+	ff_shim_read_calls_reset();
+	n = flipper_ir_count_signals(BIGPATH);
+	calls = ff_shim_read_calls();
+
+	printf("  (perf: %lu bytes, %lu f_read calls)\n", bytes, calls);
+
+	CHECK_EQ_INT(n, NREC, "perf: exact record count");
+
+	/* The file must actually span several chunks, else the guard is vacuous. */
+	CHECK(bytes > (unsigned long)(4 * FF_READ_CHUNK), "perf: file spans several chunks");
+
+	/* Upper bound: ~ceil(bytes / chunk) refills plus slack for the EOF read. */
+	ceil_chunks = (bytes + FF_READ_CHUNK - 1) / FF_READ_CHUNK;
+	CHECK(calls <= ceil_chunks + 2, "perf: O(bytes / FF_READ_CHUNK) f_read calls");
+
+	/* Hard guard: byte-by-byte would be ~bytes calls; even 8 bytes/call fails. */
+	CHECK(calls < bytes / 8, "perf: not reading byte-by-byte");
+
+	f_unlink(BIGPATH);
+}
+
 int main(void)
 {
 	printf("== Flipper .ir host round-trip tests ==\n");
@@ -830,6 +888,7 @@ int main(void)
 	test_read_empty_and_header_only();
 	test_read_field_straddles_chunk();
 	test_read_line_equals_chunk();
+	test_read_call_count_is_chunked();
 	test_append_roundtrip();
 	test_rewrite_edit();
 	test_create_empty_remote();
