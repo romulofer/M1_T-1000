@@ -34,6 +34,7 @@
 #include "m1_infrared.h"
 #include "m1_led_indicator.h"
 #include "m1_lp5814.h"
+#include "m1_buzzer.h"
 #include "flipper_file.h"
 #include "flipper_ir.h"
 #include "ff.h"
@@ -616,6 +617,7 @@ static void ir_custom_learn_button(const char *path)
 			if (cap == IR_CAP_NONE && irmp_get_data(&data))
 			{
 				cap = IR_CAP_PARSED;
+				m1_buzzer_notification();  /* audible capture confirm - parity with stock Learn (m1_infrared.c) */
 				ir_custom_draw_learn(IR_CAP_PARSED, &data, 0);
 			}
 			else if (cap == IR_CAP_NONE)
@@ -635,6 +637,7 @@ static void ir_custom_learn_button(const char *path)
 				if (r == FLIPPER_IR_RAW_FRAME_COMPLETE)
 				{
 					cap = IR_CAP_RAW;
+					m1_buzzer_notification();  /* audible capture confirm - raw fallback */
 					ir_custom_draw_learn(IR_CAP_RAW, NULL, s_learn_raw.raw.sample_count);
 				}
 				/* FRAME_NOISE already reset the accumulator; keep waiting. */
