@@ -182,16 +182,19 @@ void buzzer_sys_deinit(TimerHandle_t xTimer)
 /*============================================================================*/
 void m1_buzzer_set(uint16_t frequency, uint16_t duration_ms)
 {
-	if ( buzzer_busy )
-		return;
-
-	buzzer_busy = true; // lock
-
+	// Validate args BEFORE taking the lock: a zero-arg call must not strand
+	// buzzer_busy, since the only unlocker (buzzer_sys_deinit) runs from the
+	// stop-timer callback that these early-outs skip.
 	if ( frequency==0 )
 		return;
 
 	if ( duration_ms==0 )
 		return;
+
+	if ( buzzer_busy )
+		return;
+
+	buzzer_busy = true; // lock
 
 	TimerHandle_t buzzer_play =	xTimerCreate("m1_buzzer_play", duration_ms/portTICK_PERIOD_MS, pdFALSE, NULL, buzzer_sys_deinit);
 	assert_param(buzzer_play != NULL);
