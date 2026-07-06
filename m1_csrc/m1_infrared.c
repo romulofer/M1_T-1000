@@ -370,7 +370,6 @@ void infrared_learn_new_remote(void)
 						u8g2_DrawStr(&m1_u8g2, 14, 42, "Check SD card");
 					}
 					m1_u8g2_nextpage();
-					m1_buzzer_notification();
 					vTaskDelay(pdMS_TO_TICKS(1500));
 
 					/* Return to "Reading..." */

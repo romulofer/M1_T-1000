@@ -1227,8 +1227,6 @@ static void transmit_command(const ir_universal_cmd_t *cmd)
 	/* Start the transmit process */
 	infrared_transmit(1); /* 1 = initialize state machine */
 	infrared_transmit(0); /* 0 = run state machine (kicks off TX) */
-
-	m1_buzzer_notification();
 } // static void transmit_command(...)
 
 
@@ -1346,8 +1344,6 @@ static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 	/* Load next entry for the second period */
 	if (ota_len > 1)
 		Timerhdl_IrTx.Instance->ARR = s_raw_ota_buffer[++ir_ota_data_tx_counter];
-
-	m1_buzzer_notification();
 
 	/* TX is now running asynchronously via TIM16 ISR.
 	 * The ISR steps through s_raw_ota_buffer and sends Q_EVENT_IRRED_TX
@@ -1569,7 +1565,6 @@ static void ir_ir_blast(const char *title, const char *const *paths, uint8_t n_p
 	u8g2_FirstPage(&m1_u8g2);
 	m1_tx_status_box(&m1_u8g2, aborted ? "Stopped" : "Done", line, NULL);
 	m1_u8g2_nextpage();
-	m1_buzzer_notification();
 	vTaskDelay(pdMS_TO_TICKS(1200));
 
 	xQueueReset(main_q_hdl);
