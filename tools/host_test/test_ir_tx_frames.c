@@ -189,6 +189,31 @@ int main(int argc, char **argv)
 		printf("  (skip NEC shipped oracle: no second .ir path argument)\n");
 	}
 
+	/* B3 audit — verified-correct protocols. The expander must be a no-op (it
+	   must never corrupt an already-correct value), and the real encoder emits
+	   the frame verified on host (docs/IR_TX_AUDIT.md). */
+	expect_noop("B3  Denon 0x02/0x00 no-op", IRMP_DENON_PROTOCOL, 0x0002, 0x0000);
+	expect_expanded("B3  Denon 0x02/0x00 frame", IRMP_DENON_PROTOCOL, 0x0002, 0x0000,
+	                (const uint8_t[]){ 0x10, 0x00, 0x17, 0xFE }, 4);
+	expect_noop("B3  Bose 0x00/0x4C no-op", IRMP_BOSE_PROTOCOL, 0x0000, 0x004C);
+	expect_expanded("B3  Bose 0x00/0x4C frame", IRMP_BOSE_PROTOCOL, 0x0000, 0x004C,
+	                (const uint8_t[]){ 0x32, 0xCD }, 2);
+	expect_noop("B3  JVC 0x03/0x00 no-op", IRMP_JVC_PROTOCOL, 0x0003, 0x0000);
+	expect_expanded("B3  JVC 0x03/0x00 frame", IRMP_JVC_PROTOCOL, 0x0003, 0x0000,
+	                (const uint8_t[]){ 0xC0, 0x00 }, 2);
+	/* RC5/RC6 are verified correct too, but the frame carries a stateful toggle
+	   bit (IRSND static), so assert only that the expander leaves them alone. */
+	expect_noop("B3  RC5 0x10/0x0C no-op", IRMP_RC5_PROTOCOL, 0x0010, 0x000C);
+	expect_noop("B3  RC6 0x00/0x0C no-op", IRMP_RC6_PROTOCOL, 0x0000, 0x000C);
+
+	/* B3 audit — known TX limitations (docs/IR_TX_AUDIT.md). The expander must
+	   leave them UNTOUCHED: no guessed expansion is shipped, their brokenness is
+	   documented. Guards against someone slipping in an unverified fix. */
+	expect_noop("B3  SIRC 0x01/0x15 no-op (LIMITATION)", IRMP_SIRCS_PROTOCOL, 0x0001, 0x0015);
+	expect_noop("B3  RCA 0x0F/0x00 no-op (LIMITATION)", IRMP_RCCAR_PROTOCOL, 0x000F, 0x0000);
+	expect_noop("B3  Apple 0x87EE/0x0A no-op (LIMITATION)", IRMP_APPLE_PROTOCOL, 0x87EE, 0x000A);
+	expect_noop("B3  Kaseikyo 0x4000/0x3D no-op (LIMITATION)", IRMP_KASEIKYO_PROTOCOL, 0x4000, 0x003D);
+
 	if (failures) {
 		printf("ir_tx_frames: %d FAILURE(S)\n", failures);
 		return 1;

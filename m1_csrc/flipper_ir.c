@@ -168,9 +168,31 @@ void ir_expand_parsed_code(uint8_t proto, uint16_t *addr, uint16_t *cmd)
 			*addr = (uint16_t)(((uint16_t)(uint8_t)~dev << 8) | dev);
 		break;
 	}
+	/* --- Audited: IRSND emits a complete, correct frame from the Flipper-
+	 *     canonical value (verified on host against irsnd.c, see
+	 *     docs/IR_TX_AUDIT.md), so NO expansion is needed. Explicit cases keep
+	 *     the audit provably complete rather than assumed. --- */
+	case IRMP_DENON_PROTOCOL:   /* addr + cmd + IRSND-synthesized 2nd-frame ~cmd  */
+	case IRMP_BOSE_PROTOCOL:    /* cmd + IRSND-synthesized ~cmd (Bose has no addr) */
+	case IRMP_JVC_PROTOCOL:     /* addr + cmd packed verbatim                      */
+	case IRMP_RC5_PROTOCOL:     /* addr + cmd bit-packed (toggle bit is IRSND state) */
+	case IRMP_RC6_PROTOCOL:     /* addr + cmd bit-packed (toggle bit is IRSND state) */
+		break;
+
+	/* --- Known TX limitations (docs/IR_TX_AUDIT.md). These emit an incorrect or
+	 *     absent frame today and are NOT fixable by a canonical->expanded value
+	 *     transform -- they need raw conversion or a vendor-encoder fix. Left as
+	 *     no-op (behavior unchanged from before the expander) and documented for
+	 *     later pickup; do NOT add a guessed expansion here. --- */
+	case IRMP_SIRCS_PROTOCOL:     /* SIRC-12: IRSND drops the 5-bit device address   */
+	case IRMP_RCCAR_PROTOCOL:     /* "RCA" mis-mapped; IRSND encoder compiled out    */
+	case IRMP_APPLE_PROTOCOL:     /* address/command field handling unverified       */
+	case IRMP_KASEIKYO_PROTOCOL:  /* vendor/genre/checksum mapping unverified        */
+		break;
+
 	default:
-		/* IRSND already sends this protocol's canonical value correctly, or the
-		 * expansion is added in a later task. No-op. */
+		/* Other/unshipped protocols: IRSND sends the canonical value; no
+		 * expansion known or needed. No-op. */
 		break;
 	}
 }
