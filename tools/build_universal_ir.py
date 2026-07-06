@@ -29,6 +29,7 @@ Usage:
 
 import argparse
 import os
+import re
 import sys
 
 
@@ -144,6 +145,37 @@ def dedup(records):
     return out
 
 
+_HEX_BYTES_RE = re.compile(r"^[0-9A-Fa-f]{2}( [0-9A-Fa-f]{2})*$")
+
+
+def lint_record(r):
+    """Return a list of human-readable problems with a Record (empty if clean).
+
+    Guards the aggregate against malformed or ambiguous rows: a parsed row must
+    carry a protocol plus space-separated hex-byte address/command and no raw
+    ``data``; a raw row must carry ``data``. This only *flags* bad input -- it
+    never rewrites values, so the generator's canonical single-byte output shape
+    is unchanged."""
+    problems = []
+    if r.type == "parsed":
+        if not r.protocol:
+            problems.append("parsed record missing protocol")
+        for field in ("address", "command"):
+            val = getattr(r, field)
+            if not val:
+                problems.append(f"parsed record missing {field}")
+            elif not _HEX_BYTES_RE.match(val.strip()):
+                problems.append(f"parsed {field} is not space-separated hex bytes: {val!r}")
+        if r.data is not None:
+            problems.append("parsed record also carries raw 'data' (ambiguous type)")
+    elif r.type == "raw":
+        if not r.data:
+            problems.append("raw record missing data")
+    else:
+        problems.append(f"unknown record type: {r.type!r}")
+    return problems
+
+
 def emit_ir(records):
     """Render records as Flipper .ir text (with a per-record # brand comment)."""
     lines = ["Filetype: IR signals file", "Version: 1"]
@@ -232,6 +264,12 @@ def build_category(cat, ir_root):
         stem = fname[:-3]
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             recs = parse_ir_records(fh.read())
+
+        # Flag malformed/ambiguous rows in the source (non-fatal; keeps valid
+        # output byte-identical while surfacing bad input for a human to fix).
+        for r in recs:
+            for problem in lint_record(r):
+                sys.stderr.write(f"lint: {fname}: {r.name!r}: {problem}\n")
 
         if fname in dump_files:
             # Every record is a brand power code.

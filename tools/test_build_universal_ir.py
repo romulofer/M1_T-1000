@@ -108,11 +108,57 @@ def test_emit_reparseable_shape():
           "emit includes brand comment")
 
 
+def test_lint():
+    # clean parsed and raw records lint clean
+    good = g.Record("Power", "parsed", protocol="NEC",
+                    address="40 00 00 00", command="0C 00 00 00")
+    check(g.lint_record(good) == [], "clean parsed record lints clean")
+    check(g.lint_record(g.Record("P", "raw", data="100 200 300")) == [],
+          "clean raw record lints clean")
+
+    # malformed parsed rows are flagged
+    no_addr = g.Record("Power", "parsed", protocol="NEC",
+                       address=None, command="0C 00 00 00")
+    check(any("address" in p for p in g.lint_record(no_addr)), "missing address flagged")
+
+    bad_hex = g.Record("Power", "parsed", protocol="NEC",
+                       address="ZZ 00", command="0C 00 00 00")
+    check(any("hex" in p for p in g.lint_record(bad_hex)), "non-hex address flagged")
+
+    no_proto = g.Record("Power", "parsed", protocol=None,
+                        address="40 00 00 00", command="0C 00 00 00")
+    check(any("protocol" in p for p in g.lint_record(no_proto)), "missing protocol flagged")
+
+    ambiguous = g.Record("Power", "parsed", protocol="NEC", address="40 00 00 00",
+                         command="0C 00 00 00", data="100 200")
+    check(any("ambiguous" in p for p in g.lint_record(ambiguous)),
+          "parsed record with raw data flagged ambiguous")
+
+    check(len(g.lint_record(g.Record("P", "raw", data=None))) >= 1,
+          "raw record missing data flagged")
+
+
+def test_emit_canonical_shape():
+    # A Samsung canonical record must be emitted VERBATIM (single device byte),
+    # never pre-expanded (NOT "07 07 00 00"): the DB stays Flipper-canonical and
+    # the firmware TX-time expander owns on-air expansion.
+    rec = g.Record("Power", "parsed", protocol="Samsung32",
+                   address="07 00 00 00", command="02 00 00 00", source="Samsung")
+    text = g.emit_ir([rec])
+    check("address: 07 00 00 00" in text, "Samsung address emitted canonical (not expanded)")
+    check("command: 02 00 00 00" in text, "Samsung command emitted canonical (not expanded)")
+    check("07 07 00 00" not in text, "address NOT pre-expanded in the aggregate")
+    check(g.parse_ir_records(text)[0].address == "07 00 00 00",
+          "reparsed address stays canonical")
+
+
 def main():
     test_parse_records()
     test_canonicalize()
     test_dedup()
     test_emit_reparseable_shape()
+    test_lint()
+    test_emit_canonical_shape()
     if FAIL:
         print(f"build_universal_ir: {FAIL} check(s) FAILED")
         return 1
