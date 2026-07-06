@@ -154,6 +154,20 @@ void ir_expand_parsed_code(uint8_t proto, uint16_t *addr, uint16_t *cmd)
 			*cmd = (uint16_t)(((uint16_t)(uint8_t)~cmd_lo << 8) | cmd_lo);
 		break;
 	}
+	case IRMP_NEC_PROTOCOL:
+	{
+		/* Standard NEC sends {addr, ~addr, cmd, ~cmd}. IRSND synthesizes the
+		 * ~command byte itself (irsnd.c IRMP_NEC_PROTOCOL case) but transmits the
+		 * 16-bit address verbatim, so a canonical code -- device in the low byte,
+		 * high byte 0 -- needs ~addr synthesized into the high byte. A 16-bit
+		 * address (high byte != 0) is extended NEC, or an already-expanded
+		 * {device,~device} clone: already complete, so leave it untouched. The
+		 * command is left as-is because IRSND derives its check byte. */
+		uint8_t dev = (uint8_t)(*addr & 0xFFu);
+		if ((uint8_t)(*addr >> 8) == 0u)
+			*addr = (uint16_t)(((uint16_t)(uint8_t)~dev << 8) | dev);
+		break;
+	}
 	default:
 		/* IRSND already sends this protocol's canonical value correctly, or the
 		 * expansion is added in a later task. No-op. */

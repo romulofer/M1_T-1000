@@ -27,6 +27,16 @@ extern const uint8_t *irsnd_host_tx_buffer(void);
 
 static int failures;
 
+/* Byte i of ir_tx_buffer[] is the logical protocol byte bit-reversed (verified
+   against Samsung: 0xE0 == bitrev8(0x07)). Used to build NEC oracles from the
+   protocol frame definition, independent of the expander under test. */
+static uint8_t bitrev8(uint8_t b)
+{
+	uint8_t r = 0;
+	for (int i = 0; i < 8; i++) { r = (uint8_t)((r << 1) | (b & 1u)); b = (uint8_t)(b >> 1); }
+	return r;
+}
+
 /*
  * Encode one IRMP_DATA vector through the real irsnd.c and return the packed
  * buffer. irsnd_generate_tx_data() latches ir_tx_active and refuses a second
@@ -85,7 +95,7 @@ static void expect_shipped(const char *path, const char *record,
                            const uint8_t *want, int n)
 {
 	char label[112];
-	snprintf(label, sizeof label, "B1  shipped \"%s\" (%s)", record, path);
+	snprintf(label, sizeof label, "shipped \"%s\" (%s)", record, path);
 
 	flipper_file_t ctx;
 	if (!flipper_ir_open(&ctx, path)) {
@@ -112,6 +122,31 @@ static void expect_shipped(const char *path, const char *record,
 	}
 }
 
+/* On-air standard NEC is {addr, ~addr, cmd, ~cmd}; the buffer holds each byte
+   bit-reversed. Reference is built from the protocol definition, not the
+   expander, then driven through expand + real encode. */
+static void expect_nec(const char *name, uint16_t addr_lo, uint16_t cmd_lo)
+{
+	uint8_t a = (uint8_t)addr_lo, c = (uint8_t)cmd_lo;
+	uint8_t want[4] = { bitrev8(a), bitrev8((uint8_t)~a), bitrev8(c), bitrev8((uint8_t)~c) };
+	expect_expanded(name, IRMP_NEC_PROTOCOL, addr_lo, cmd_lo, want, 4);
+}
+
+/* Assert the expander leaves an already-complete code untouched (idempotency /
+   extended-address protection): re-expansion and 16-bit addresses are no-ops. */
+static void expect_noop(const char *name, uint8_t proto, uint16_t addr, uint16_t cmd)
+{
+	uint16_t a = addr, c = cmd;
+	ir_expand_parsed_code(proto, &a, &c);
+	if (a != addr || c != cmd) {
+		failures++;
+		printf("  FAIL %s: expander mutated 0x%04X/0x%04X -> 0x%04X/0x%04X\n",
+		       name, addr, cmd, a, c);
+	} else {
+		printf("  ok   %s: 0x%04X/0x%04X unchanged\n", name, addr, cmd);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	printf("== IR TX on-air oracle harness (real irsnd.c + expander) ==\n");
@@ -134,7 +169,25 @@ int main(int argc, char **argv)
 	if (argc > 1)
 		expect_shipped(argv[1], "Power", samsung_power, 4);
 	else
-		printf("  (skip shipped oracle: no .ir path argument)\n");
+		printf("  (skip Samsung shipped oracle: no .ir path argument)\n");
+
+	/* B2 — standard NEC: the expander synthesizes ~addr into the address high
+	   byte; IRSND derives the ~command byte itself, so the command is untouched. */
+	expect_nec("B2  NEC 0x04/0x08 (expand ~addr)", 0x0004, 0x0008);
+
+	/* B2 — idempotency: an already-16-bit address (an expanded standard-NEC
+	   clone, or a genuine extended-NEC address) is left untouched, so a real
+	   16-bit address is never corrupted. */
+	expect_noop("B2  NEC 0xFB04/0x0008 expanded (idempotent)", IRMP_NEC_PROTOCOL, 0xFB04, 0x0008);
+	expect_noop("B2  NECext 0xABCD/0x0012 (16-bit addr untouched)", IRMP_NEC_PROTOCOL, 0xABCD, 0x0012);
+
+	/* B2 — shipped NEC record "On" (address 0x00, command 0x40) end to end. */
+	if (argc > 2) {
+		uint8_t nec_on[4] = { bitrev8(0x00), bitrev8(0xFF), bitrev8(0x40), bitrev8(0xBF) };
+		expect_shipped(argv[2], "On", nec_on, 4);
+	} else {
+		printf("  (skip NEC shipped oracle: no second .ir path argument)\n");
+	}
 
 	if (failures) {
 		printf("ir_tx_frames: %d FAILURE(S)\n", failures);

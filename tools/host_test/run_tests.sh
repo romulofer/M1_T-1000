@@ -103,5 +103,5 @@ IRTX_HOST_OBJ="$DIR/irsnd_host.o"
 	"$IRTX_HOST_OBJ" \
 	"$DIR/stubs/hal_stub.c" \
 	-o "$IRTX_BIN"
-"$IRTX_BIN" "$ROOT/ir_database/TV/Samsung.ir"
+"$IRTX_BIN" "$ROOT/ir_database/TV/Samsung.ir" "$ROOT/ir_database/LEDs/RGB_24key.ir"
 rm -f "$IRTX_HOST_OBJ"
