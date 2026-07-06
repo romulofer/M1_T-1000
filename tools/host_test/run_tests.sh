@@ -91,11 +91,17 @@ IRTX_HOST_OBJ="$DIR/irsnd_host.o"
 "$CC" -std=c11 -w -O0 -g -DIRSND_HOST_TEST=1 \
 	-I"$DIR/stubs" -I"$ROOT/Infrared" \
 	-c "$DIR/irsnd_host.c" -o "$IRTX_HOST_OBJ"
+# The oracle also links the real expander (flipper_ir.c) + file layer over the
+# FatFs shim, so it can drive a shipped .ir record end to end. -I"$DIR" first for
+# the ff.h/irmp.h shims, then stubs (main.h/m1_infrared.h), Infrared, m1_csrc.
 "$CC" -std=c11 -Wall -Wextra -O0 -g -DIRSND_HOST_TEST=1 \
-	-I"$DIR/stubs" -I"$ROOT/Infrared" \
+	-I"$DIR" -I"$DIR/stubs" -I"$ROOT/Infrared" -I"$ROOT/m1_csrc" \
 	"$DIR/test_ir_tx_frames.c" \
+	"$ROOT/m1_csrc/flipper_ir.c" \
+	"$ROOT/m1_csrc/flipper_file.c" \
+	"$DIR/ff_shim.c" \
 	"$IRTX_HOST_OBJ" \
 	"$DIR/stubs/hal_stub.c" \
 	-o "$IRTX_BIN"
-"$IRTX_BIN"
+"$IRTX_BIN" "$ROOT/ir_database/TV/Samsung.ir"
 rm -f "$IRTX_HOST_OBJ"

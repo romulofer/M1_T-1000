@@ -1221,6 +1221,10 @@ static void transmit_command(const ir_universal_cmd_t *cmd)
 	/* Initialize the IR encoder system */
 	infrared_encode_sys_init();
 
+	/* DB codes are Flipper-canonical; expand to the exact on-air frame in place
+	 * (idempotent, TX-time only) so IRSND doesn't pack a structurally wrong one. */
+	ir_expand_parsed_code(s_tx_irmp_data.protocol, &s_tx_irmp_data.address, &s_tx_irmp_data.command);
+
 	/* Generate OTA data from the IRMP_DATA structure */
 	irsnd_generate_tx_data(s_tx_irmp_data);
 
@@ -1400,6 +1404,8 @@ static bool ir_blast_step(const char *title, const ir_universal_cmd_t *cmd,
 		s_tx_irmp_data.flags    = cmd->flags;
 
 		infrared_encode_sys_init();
+		/* Expand DB-canonical code to its real on-air frame (idempotent). */
+		ir_expand_parsed_code(s_tx_irmp_data.protocol, &s_tx_irmp_data.address, &s_tx_irmp_data.command);
 		irsnd_generate_tx_data(s_tx_irmp_data);
 		infrared_transmit(1);
 		infrared_transmit(0);

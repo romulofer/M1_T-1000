@@ -115,6 +115,54 @@ static uint16_t ff_hex_bytes_to_uint16_le(const uint8_t *bytes, uint8_t count)
 
 /*============================================================================*/
 /**
+ * @brief  Expand a DB-canonical parsed code in place into the exact on-air
+ *         address/command a real remote sends, for IRSND at TX time.
+ * @details Flipper .ir keeps only the minimal canonical fields (Samsung32 stores
+ *          the 8-bit device + 8-bit command). IRSND packs whatever 16-bit values
+ *          it is handed verbatim, so a canonical code emits a structurally wrong
+ *          frame (Samsung 0x0007/0x0002 -> E0 00 40 00, which a real TV rejects).
+ *          This reconstructs the bytes the protocol actually carries.
+ *
+ *          Idempotent by construction: each case detects already-expanded input
+ *          (a clone, a replay, or a pre-expanded value) and leaves it untouched,
+ *          so a value can never be double-expanded. Call at TX time only -- never
+ *          in the reader -- so the on-disk DB and rewrite path stay canonical.
+ * @param  proto  IRMP protocol ID (e.g. IRMP_SAMSUNG32_PROTOCOL)
+ * @param  addr   in/out: parsed address, expanded in place
+ * @param  cmd    in/out: parsed command, expanded in place
+ */
+void ir_expand_parsed_code(uint8_t proto, uint16_t *addr, uint16_t *cmd)
+{
+	if (addr == NULL || cmd == NULL)
+		return;
+
+	switch (proto)
+	{
+	case IRMP_SAMSUNG32_PROTOCOL:
+	{
+		/* On air Samsung32 carries {device, device, command, ~command}. IRSND
+		 * bit-reverses address and command as 16-bit values and emits
+		 * [addr_hi, addr_lo, cmd_hi, cmd_lo] (irsnd.c IRMP_SAMSUNG32_PROTOCOL
+		 * case), so address must hold the device byte twice and command must
+		 * hold ~command in its high byte. */
+		uint8_t dev = (uint8_t)(*addr & 0xFFu);
+		if ((uint8_t)(*addr >> 8) == 0u)               /* canonical: device only in low byte */
+			*addr = (uint16_t)(((uint16_t)dev << 8) | dev);
+
+		uint8_t cmd_lo = (uint8_t)(*cmd & 0xFFu);
+		if ((uint8_t)(*cmd >> 8) != (uint8_t)~cmd_lo)  /* check byte absent or wrong */
+			*cmd = (uint16_t)(((uint16_t)(uint8_t)~cmd_lo << 8) | cmd_lo);
+		break;
+	}
+	default:
+		/* IRSND already sends this protocol's canonical value correctly, or the
+		 * expansion is added in a later task. No-op. */
+		break;
+	}
+}
+
+/*============================================================================*/
+/**
  * @brief  Map Flipper protocol name to IRMP protocol ID
  * @param  name  Flipper protocol name string (e.g., "NEC", "Samsung32")
  * @return IRMP protocol ID, or IRMP_UNKNOWN_PROTOCOL if not found

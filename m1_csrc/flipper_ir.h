@@ -113,6 +113,13 @@ uint8_t flipper_ir_proto_to_irmp(const char *name);
 /* Map IRMP protocol ID to Flipper protocol name string */
 const char *flipper_ir_irmp_to_proto(uint8_t irmp_id);
 
+/* Expand a DB-canonical parsed code (address/command) in place into the exact
+ * values a real remote transmits, for IRSND at TX time. Idempotent: already-
+ * expanded input (clones / replays / pre-expanded) is left untouched. Call only
+ * at TX time, never in the reader, so the on-disk DB and the rename/delete
+ * rewrite path stay canonical. proto is an IRMP protocol ID (IRMP_*_PROTOCOL). */
+void ir_expand_parsed_code(uint8_t proto, uint16_t *addr, uint16_t *cmd);
+
 /* Count signals in a .ir file without loading them all */
 uint16_t flipper_ir_count_signals(const char *path);
 
