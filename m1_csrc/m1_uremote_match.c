@@ -64,3 +64,17 @@ bool uremote_name_matches(const char *name,
 
 	return false;
 }
+
+bool uremote_all_present(const uint8_t *muted, uint8_t n)
+{
+	if (muted == NULL)
+		return false;
+
+	for (uint8_t j = 0; j < n; j++)
+	{
+		if (muted[j] != 0)
+			return false;
+	}
+
+	return true;
+}

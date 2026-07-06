@@ -1716,6 +1716,12 @@ static void uremote_scan_present(const uremote_category_t *cat, uint8_t *muted, 
 				break;
 			}
 		}
+
+		/* Once every function has a match, no later record can change muted[],
+		 * so stop reading the rest of the file. Combined with the buffered .ir
+		 * reader, this is the Universal Remotes panel-open latency fix. */
+		if (uremote_all_present(muted, n))
+			break;
 	}
 	ff_close(&ff);
 } // static void uremote_scan_present(...)

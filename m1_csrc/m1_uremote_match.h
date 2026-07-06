@@ -21,6 +21,7 @@
 #define M1_UREMOTE_MATCH_H_
 
 #include <stdbool.h>
+#include <stdint.h>
 
 /* Case-insensitive FULL-string match of a parsed record `name` against a
  * target `record` name and an optional NULL-terminated `aliases` list.
@@ -34,5 +35,14 @@
 bool uremote_name_matches(const char *name,
                           const char *record,
                           const char *const *aliases);
+
+/* True iff every function has been found present, i.e. muted[j] == 0 for all
+ * j < n. Vacuously true when n == 0. NULL `muted` is treated defensively as
+ * "not all present" (false). Pure: no side effects.
+ *
+ * Lets the Universal Remotes muted scan (uremote_scan_present) stop early:
+ * once this holds, no later record can change muted[], so reading the rest of
+ * the file is wasted work -- the second half of the panel-open latency fix. */
+bool uremote_all_present(const uint8_t *muted, uint8_t n);
 
 #endif /* M1_UREMOTE_MATCH_H_ */

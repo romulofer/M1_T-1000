@@ -19,6 +19,7 @@
 
 #include <stdio.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "m1_uremote_match.h"
 #include "m1_uremote_layout.h"
@@ -66,6 +67,98 @@ static void test_matcher(void)
 	/* Empty strings never spuriously match a real name. */
 	CHECK(!uremote_name_matches("", "Power", NULL));
 	CHECK(!uremote_name_matches("Power", "", NULL));
+}
+
+/*----------------------------------------------------------------------------*/
+/* T1b: uremote_all_present() + early-exit equivalence (Task 5) */
+/*----------------------------------------------------------------------------*/
+
+/* Reference model of uremote_scan_present()'s marking loop: pre-mark every
+ * function muted, then for each record name clear the first matching function.
+ * `early_exit` mirrors the Task 5 optimization (stop once all are present).
+ * Returns the number of records consumed, so a test can prove early-exit reads
+ * strictly fewer while producing the same muted[]. Uses the REAL matcher +
+ * predicate, so it validates the exact logic wired into the firmware scan. */
+static int scan_mark(const char *const *records, int nrec,
+                     const char *const *fn_records, int nfn,
+                     uint8_t *muted, bool early_exit)
+{
+	int consumed = 0;
+
+	for (int j = 0; j < nfn; j++)
+		muted[j] = 1;
+
+	for (int r = 0; r < nrec; r++)
+	{
+		consumed++;
+		for (int j = 0; j < nfn; j++)
+		{
+			if (muted[j] &&
+			    uremote_name_matches(records[r], fn_records[j], NULL))
+			{
+				muted[j] = 0;
+				break;
+			}
+		}
+		if (early_exit && uremote_all_present(muted, (uint8_t)nfn))
+			break;
+	}
+
+	return consumed;
+}
+
+static void test_all_present(void)
+{
+	static const char *const fns[] = { "Power", "Vol+", "Mute" };
+	const int nfn = 3;
+
+	uint8_t all_zero[3] = { 0, 0, 0 };
+	uint8_t has_one[3]  = { 0, 1, 0 };
+	uint8_t one_zero[1] = { 0 };
+	uint8_t one_set[1]  = { 1 };
+
+	/* Direct predicate contract. */
+	CHECK(uremote_all_present(all_zero, 3));    /* all found       -> true  */
+	CHECK(!uremote_all_present(has_one, 3));    /* one still muted -> false */
+	CHECK(uremote_all_present(all_zero, 0));    /* n == 0 vacuous  -> true  */
+	CHECK(!uremote_all_present(NULL, 3));       /* NULL defensive  -> false */
+	CHECK(!uremote_all_present(NULL, 0));       /* NULL wins        -> false */
+	CHECK(uremote_all_present(one_zero, 1));
+	CHECK(!uremote_all_present(one_set, 1));
+
+	/* Equivalence 1: all functions appear early, then trailing records follow.
+	 * Early-exit must read fewer records yet leave muted[] identical -- proving
+	 * the struck/transmitted cells are unchanged by the optimization. */
+	{
+		static const char *const stream[] = {
+			"Power", "Vol+", "Mute",        /* all present after 3 records */
+			"Ch+", "Ch-", "Input", "Menu"   /* trailing -- must not matter  */
+		};
+		uint8_t m_full[3], m_early[3];
+		int c_full  = scan_mark(stream, 7, fns, nfn, m_full,  false);
+		int c_early = scan_mark(stream, 7, fns, nfn, m_early, true);
+
+		CHECK(c_full == 7);        /* full scan reads everything      */
+		CHECK(c_early == 3);       /* early exit stops at all-present */
+		CHECK(c_early < c_full);
+		for (int j = 0; j < nfn; j++)
+			CHECK(m_full[j] == m_early[j]);      /* identical output */
+		CHECK(m_early[0] == 0 && m_early[1] == 0 && m_early[2] == 0);
+	}
+
+	/* Equivalence 2: a function is absent -> never "all present", so early-exit
+	 * cannot trigger; it must read to EOF and match the full scan exactly. */
+	{
+		static const char *const stream[] = { "Power", "Ch+", "Mute" };  /* no Vol+ */
+		uint8_t m_full[3], m_early[3];
+		int c_full  = scan_mark(stream, 3, fns, nfn, m_full,  false);
+		int c_early = scan_mark(stream, 3, fns, nfn, m_early, true);
+
+		CHECK(c_full == 3 && c_early == 3);      /* no early stop */
+		for (int j = 0; j < nfn; j++)
+			CHECK(m_full[j] == m_early[j]);
+		CHECK(m_early[0] == 0 && m_early[1] == 1 && m_early[2] == 0);  /* Vol+ muted */
+	}
 }
 
 /*----------------------------------------------------------------------------*/
@@ -169,6 +262,7 @@ static void test_layout(void)
 int main(void)
 {
 	test_matcher();
+	test_all_present();
 	test_layout();
 
 	if (g_failures) {
