@@ -65,6 +65,32 @@ All notable changes to the M1 T-1000 firmware will be documented in this file.
     `tools/host_test/` (`run_mfc_sak_layout_test.sh`, `run_nfc_progress_test.sh`,
     `run_mfc_dict_test.sh`, `run_mfc_crypto1_test.sh`).
 
+### Changed
+- **Infrared: transmit is now silent (visual feedback only).** Sending an IR
+  code from Universal Remotes, saved remotes, or a power blast no longer beeps;
+  the RGB LED still blinks during transmit. The buzzer now sounds in exactly one
+  situation — when a signal is **captured** during Learn/Clone — so a beep always
+  means "I received something." The custom-remote Learn flow gained the same
+  capture beep for consistency.
+
+### Fixed
+- **Infrared: Samsung (and other parsed protocols) now transmit the correct
+  on-air frame.** Universal-Remote codes are stored in the compact Flipper
+  format, but the encoder was sending them verbatim, producing a structurally
+  wrong frame that devices ignored — the reported case was a 2010 Samsung TV not
+  responding to Power. A transmit-time expander now reconstructs the exact frame
+  a real remote sends (the duplicated device byte and command check byte for
+  Samsung; the address check byte for NEC), so **Samsung and NEC** — the two
+  largest code sets (~285 codes) — transmit correctly. The fix is idempotent, so
+  cloned/replayed signals are never affected, and the on-disk `.ir` files are
+  unchanged. Denon, Bose, JVC, RC5, and RC6 were audited and were already
+  correct. Every shipped protocol now has a byte-exact host on-air test
+  (`tools/host_test/test_ir_tx_frames.c`). Details: `docs/IR_TX_AUDIT.md`.
+- **Buzzer: a zero-argument beep can no longer silence every later beep.**
+  `m1_buzzer_set()` validated its frequency/duration *after* taking the busy
+  lock, so a call with a zero argument left the buzzer permanently "busy" and
+  muted all subsequent beeps. Arguments are now checked before the lock is taken.
+
 ### Known Issues
 - **NFC → Read: the MIFARE Classic dictionary dump does not yet recover sectors
   on-card.** The Crypto-1 cipher math is verified correct (host known-answer
@@ -72,6 +98,14 @@ All notable changes to the M1 T-1000 firmware will be documented in this file.
   layer currently transmits standard ISO14443A parity, which the card rejects.
   Until that framing fix lands, a MIFARE Classic read falls back to the UID-only
   identity floor. On-device mfkey32 key recovery and Picopass are unaffected.
+- **Infrared: some parsed protocols still transmit an incorrect or absent
+  frame.** Beyond the Samsung/NEC fix above, **SIRC/Sony** (the encoder drops the
+  device address on standard 12-bit frames), **RCA** (mapped to a protocol the
+  encoder doesn't build, so it transmits nothing), and **Apple/Kaseikyo**
+  (encoding unverified) are **not** corrected by the transmit-time expander — they
+  need a raw-timing conversion that must be verified on real hardware. They are
+  fully documented for follow-up in `docs/IR_TX_AUDIT.md`. The reported failures
+  (Samsung, and the large NEC set) do transmit correctly.
 
 ## [0.2.1] - 2026-06-29
 
