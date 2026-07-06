@@ -4,6 +4,37 @@ Status as of 2026-07-06. Companion to the `ir_expand_parsed_code()` expander in
 `m1_csrc/flipper_ir.c` and the on-air oracle harness in
 `tools/host_test/test_ir_tx_frames.c`.
 
+> **See also §0 below — the frame audit is about *which bytes* go out. A separate
+> regression (post-rework) is about *no carrier at all* going out. They are
+> unrelated: the byte-level frames here are host-proven correct even while the
+> device emits nothing.** Root cause + fix for the silence live in `SPEC.md`.
+
+## 0. Hardware note — `TIM1` is shared between IR TX and Sub-GHz
+
+The IR transmit **carrier** is `TIM1_CH4` PWM on `PC5` (`AF1_TIM1`, 38 kHz). The
+IR **baseband** (OTA bit timing) is `TIM16`. Crucially, **`TIM1` is also the
+Sub-GHz timer**:
+
+| Consumer | `TIM1` mode | Pin | IRQ / DMA |
+|---|---|---|---|
+| IR TX carrier | PWM output (`irsnd_set_freq` + `HAL_TIMEx_PWMN_Start`) | `PC5` | none |
+| Sub-GHz RX | input capture | SI4463 GPIO0 (port E) | `TIM1_CC_IRQn` |
+| Sub-GHz TX | PWM + DMA | SI4463 GPIO2 (port D) | `TIM1_UP_IRQn`, `GPDMA1_REQUEST_TIM1_UP` |
+
+The IR carrier's own `HAL_TIM_PWM_Init(TIM1)` inside
+`infrared_encode_sys_init()` is **commented out** (since Initial Upload); IR
+relies on `irsnd_set_freq()` to re-init the PWM and does **not** first DeInit
+`TIM1` or clear the DMA/IRQ bindings a prior Sub-GHz session may have left. When
+the Sub-GHz receiver (now driven aggressively by the RSSI/pre-scan rework) leaves
+`TIM1` in input-capture mode or with a `TIM1_UP` DMA request bound, the IR
+carrier can stop reaching `PC5` while the `TIM16` baseband still runs to
+completion — the firmware shows "Transmitting… / Done" but **no RF is emitted**.
+
+**Contract:** whoever uses `TIM1` must fully reclaim it (DeInit → re-init for its
+own mode, clear stale DMA/IRQ) before driving it, and hand it back neutral. Any
+future change to Sub-GHz's `TIM1` usage must preserve this or IR TX silently
+dies. Fix tracked in `SPEC.md` (§4 root cause, §6 fix, §7 bench triage).
+
 ## 1. The problem
 
 Universal-Remote / saved-remote transmit uses IRSND (`Infrared/irsnd.c`) to
