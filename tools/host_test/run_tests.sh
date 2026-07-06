@@ -13,6 +13,10 @@
 #      (test_uremote_panel).
 #   6. build_universal_ir.py generator unit test (parse / normalize / dedup /
 #      emit), when python3 is available.
+#   7. IR TX on-air oracle harness (test_ir_tx_frames): compiles the REAL
+#      Infrared/irsnd.c on host against thin HAL / m1_infrared shadows and
+#      asserts the packed ir_tx_buffer[] frames (Samsung E0 E0 40 BF; B1+ pin
+#      the canonical-input and per-protocol oracles here).
 set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -74,3 +78,24 @@ if command -v python3 >/dev/null 2>&1; then
 else
 	echo "  (skipped: python3 not found)"
 fi
+
+# IR TX on-air oracle harness (Task B0). Compiles the REAL Infrared/irsnd.c on
+# host and asserts the frame it packs into ir_tx_buffer[]. -I stubs comes first
+# so main.h + m1_infrared.h resolve to the thin host shadows; -I Infrared then
+# supplies the real irsnd.h / irmp headers. irsnd.c is vendor code, so its
+# wrapper compiles -w while the oracle itself stays -Wall -Wextra.
+echo
+echo "== IR TX on-air oracle harness (real irsnd.c) =="
+IRTX_BIN="$DIR/test_ir_tx_frames"
+IRTX_HOST_OBJ="$DIR/irsnd_host.o"
+"$CC" -std=c11 -w -O0 -g -DIRSND_HOST_TEST=1 \
+	-I"$DIR/stubs" -I"$ROOT/Infrared" \
+	-c "$DIR/irsnd_host.c" -o "$IRTX_HOST_OBJ"
+"$CC" -std=c11 -Wall -Wextra -O0 -g -DIRSND_HOST_TEST=1 \
+	-I"$DIR/stubs" -I"$ROOT/Infrared" \
+	"$DIR/test_ir_tx_frames.c" \
+	"$IRTX_HOST_OBJ" \
+	"$DIR/stubs/hal_stub.c" \
+	-o "$IRTX_BIN"
+"$IRTX_BIN"
+rm -f "$IRTX_HOST_OBJ"
