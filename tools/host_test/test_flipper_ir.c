@@ -516,11 +516,223 @@ static void test_f_read_chunks(void)
 	f_unlink(FREAD_PATH);
 }
 
+/*----------------------------------------------------------------------------*
+ * Task 2 — ff_read_line() contract characterization.
+ *
+ * These pin ff_read_line()'s observable behavior on the CURRENT f_gets reader
+ * so the Task 3 buffered rewrite is guarded for byte-for-byte parity. Each case
+ * makes a falsifiable assertion about line assembly, trailing-whitespace
+ * stripping, comment handling, and EOF — the exact seams the raw data: sample
+ * counting and ff_is_separator() logic depend on.
+ *----------------------------------------------------------------------------*/
+
+/* A physical line longer than the line buffer is delivered in FF_LINE_BUF_LEN-1
+ * sized pieces across successive calls (f_gets cap), never dropped. This locks
+ * the split point that raw data: sample counting relies on. */
+static void test_read_long_line_splits_at_buf(void)
+{
+	flipper_file_t ff;
+	FILE *w;
+	int   i;
+	const int total = FF_LINE_BUF_LEN + 88;   /* 600: overruns the 512 buffer */
+
+	printf("test_read_long_line_splits_at_buf\n");
+	f_unlink(TEST_PATH);
+
+	w = fopen(TEST_PATH, "wb");
+	CHECK(w != NULL, "longline: seed open");
+	for (i = 0; i < total; i++)
+		fputc('A', w);
+	fputc('\n', w);
+	fputs("next: line\n", w);
+	fclose(w);
+
+	CHECK(ff_open(&ff, TEST_PATH), "longline: open");
+
+	/* Chunk 1: capped at exactly FF_LINE_BUF_LEN-1 characters. */
+	CHECK(ff_read_line(&ff), "longline: read 1");
+	CHECK_EQ_INT((long)strlen(ff.line), FF_LINE_BUF_LEN - 1, "longline: chunk1 == 511");
+
+	/* Chunk 2: the remainder continues on the next call, not lost. */
+	CHECK(ff_read_line(&ff), "longline: read 2 (continuation)");
+	CHECK_EQ_INT((long)strlen(ff.line), total - (FF_LINE_BUF_LEN - 1),
+	             "longline: chunk2 == remainder");
+
+	/* The following real line still parses normally. */
+	CHECK(ff_read_line(&ff), "longline: read 3");
+	CHECK(ff_parse_kv(&ff), "longline: read 3 kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "next", "longline: key after long line");
+	CHECK_EQ_STR(ff_get_value(&ff), "line", "longline: value after long line");
+
+	CHECK(!ff_read_line(&ff), "longline: eof");
+	CHECK(ff.eof, "longline: eof flag");
+
+	ff_close(&ff);
+	f_unlink(TEST_PATH);
+}
+
+/* CRLF (\r\n) endings are stripped identically to LF: no trailing CR survives
+ * into the parsed value. */
+static void test_read_crlf_stripped_like_lf(void)
+{
+	flipper_file_t ff;
+	FILE *w;
+
+	printf("test_read_crlf_stripped_like_lf\n");
+	f_unlink(TEST_PATH);
+
+	w = fopen(TEST_PATH, "wb");
+	CHECK(w != NULL, "crlf: seed open");
+	fputs("crlf_key: 1\r\n", w);   /* CRLF ending */
+	fputs("lf_key: 2\n", w);       /* LF ending  */
+	fclose(w);
+
+	CHECK(ff_open(&ff, TEST_PATH), "crlf: open");
+
+	CHECK(ff_read_line(&ff), "crlf: read 1");
+	CHECK(ff_parse_kv(&ff), "crlf: read 1 kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "crlf_key", "crlf: key (CR stripped)");
+	CHECK_EQ_STR(ff_get_value(&ff), "1", "crlf: value carries no trailing CR");
+
+	CHECK(ff_read_line(&ff), "crlf: read 2");
+	CHECK(ff_parse_kv(&ff), "crlf: read 2 kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "lf_key", "crlf: LF key");
+	CHECK_EQ_STR(ff_get_value(&ff), "2", "crlf: LF value");
+
+	CHECK(!ff_read_line(&ff), "crlf: eof");
+
+	ff_close(&ff);
+	f_unlink(TEST_PATH);
+}
+
+/* The final line with no trailing newline is returned exactly once, then EOF is
+ * clean (no phantom repeat, no lost line). */
+static void test_read_no_trailing_newline(void)
+{
+	flipper_file_t ff;
+	FILE *w;
+
+	printf("test_read_no_trailing_newline\n");
+	f_unlink(TEST_PATH);
+
+	w = fopen(TEST_PATH, "wb");
+	CHECK(w != NULL, "nonl: seed open");
+	fputs("first: 1\nlast: 2", w);   /* last line: NO trailing newline */
+	fclose(w);
+
+	CHECK(ff_open(&ff, TEST_PATH), "nonl: open");
+
+	CHECK(ff_read_line(&ff), "nonl: read 1");
+	CHECK(ff_parse_kv(&ff), "nonl: read 1 kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "first", "nonl: first key");
+
+	CHECK(ff_read_line(&ff), "nonl: read 2 (newline-less last line returned once)");
+	CHECK(ff_parse_kv(&ff), "nonl: read 2 kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "last", "nonl: last key");
+	CHECK_EQ_STR(ff_get_value(&ff), "2", "nonl: last value");
+
+	CHECK(!ff_read_line(&ff), "nonl: clean eof after last line");
+	CHECK(ff.eof, "nonl: eof flag set");
+
+	ff_close(&ff);
+	f_unlink(TEST_PATH);
+}
+
+/* Comment/separator lines (#) are RETURNED (so ff_is_separator stays true);
+ * blank and whitespace-only lines are skipped. */
+static void test_read_comment_returned_blanks_skipped(void)
+{
+	flipper_file_t ff;
+	FILE *w;
+
+	printf("test_read_comment_returned_blanks_skipped\n");
+	f_unlink(TEST_PATH);
+
+	w = fopen(TEST_PATH, "wb");
+	CHECK(w != NULL, "cmt: seed open");
+	fputs("key1: a\n", w);
+	fputs("\n", w);           /* blank line          -> skipped */
+	fputs("   \t \n", w);      /* whitespace-only     -> skipped */
+	fputs("#\n", w);           /* separator (as written by ff_write_separator) */
+	fputs("key2: b\n", w);
+	fclose(w);
+
+	CHECK(ff_open(&ff, TEST_PATH), "cmt: open");
+
+	CHECK(ff_read_line(&ff), "cmt: read 1 (key1)");
+	CHECK(!ff_is_separator(&ff), "cmt: key1 not a separator");
+	CHECK_EQ_STR(ff.line, "key1: a", "cmt: key1 line");
+
+	/* Blank + whitespace-only lines skipped inside one call; the '#' is returned. */
+	CHECK(ff_read_line(&ff), "cmt: read 2 (separator survives blank skip)");
+	CHECK(ff_is_separator(&ff), "cmt: '#' line is a separator");
+	CHECK_EQ_STR(ff.line, "#", "cmt: separator line content");
+	CHECK(!ff_parse_kv(&ff), "cmt: separator is not key-value");
+
+	CHECK(ff_read_line(&ff), "cmt: read 3 (key2)");
+	CHECK(!ff_is_separator(&ff), "cmt: key2 not a separator");
+	CHECK(ff_parse_kv(&ff), "cmt: key2 kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "key2", "cmt: key2 key");
+
+	CHECK(!ff_read_line(&ff), "cmt: eof");
+
+	ff_close(&ff);
+	f_unlink(TEST_PATH);
+}
+
+/* Empty and header-only files reach EOF cleanly with no over-read past EOF. */
+static void test_read_empty_and_header_only(void)
+{
+	flipper_file_t ff;
+	FILE *w;
+
+	printf("test_read_empty_and_header_only\n");
+
+	/* --- Empty file: first read is EOF; repeated reads stay false. --- */
+	f_unlink(TEST_PATH);
+	w = fopen(TEST_PATH, "wb");
+	CHECK(w != NULL, "empty: seed open");
+	fclose(w);   /* zero bytes */
+
+	CHECK(ff_open(&ff, TEST_PATH), "empty: open");
+	CHECK(!ff_read_line(&ff), "empty: first read is EOF");
+	CHECK(ff.eof, "empty: eof flag");
+	CHECK(!ff_read_line(&ff), "empty: no over-read past EOF");
+	ff_close(&ff);
+
+	/* --- Header-only file: two lines, then a clean EOF (no phantom signal). --- */
+	f_unlink(TEST_PATH);
+	w = fopen(TEST_PATH, "wb");
+	CHECK(w != NULL, "hdr: seed open");
+	fputs("Filetype: IR signals file\n", w);
+	fputs("Version: 1\n", w);
+	fclose(w);
+
+	CHECK(ff_open(&ff, TEST_PATH), "hdr: open");
+	CHECK(ff_read_line(&ff), "hdr: read Filetype");
+	CHECK(ff_parse_kv(&ff), "hdr: Filetype kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "Filetype", "hdr: Filetype key");
+	CHECK(ff_read_line(&ff), "hdr: read Version");
+	CHECK(ff_parse_kv(&ff), "hdr: Version kv");
+	CHECK_EQ_STR(ff_get_key(&ff), "Version", "hdr: Version key");
+	CHECK_EQ_STR(ff_get_value(&ff), "1", "hdr: Version value");
+	CHECK(!ff_read_line(&ff), "hdr: clean EOF after header");
+	CHECK(ff.eof, "hdr: eof flag");
+	ff_close(&ff);
+
+	f_unlink(TEST_PATH);
+}
+
 int main(void)
 {
 	printf("== Flipper .ir host round-trip tests ==\n");
 
 	test_f_read_chunks();
+	test_read_long_line_splits_at_buf();
+	test_read_crlf_stripped_like_lf();
+	test_read_no_trailing_newline();
+	test_read_comment_returned_blanks_skipped();
+	test_read_empty_and_header_only();
 	test_append_roundtrip();
 	test_rewrite_edit();
 	test_create_empty_remote();
