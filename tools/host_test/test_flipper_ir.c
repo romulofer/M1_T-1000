@@ -59,6 +59,7 @@ static int g_failures = 0;
 /*************************** F I X T U R E S *********************************/
 
 #define TEST_PATH   "m1_flipper_roundtrip.ir"
+#define FREAD_PATH  "m1_fread_micro.ir"
 
 /* Known raw sample stream (alternating mark/space microseconds). */
 static const int32_t k_raw_samples[] = {
@@ -462,10 +463,64 @@ static void test_delete_signal(void)
 	f_unlink(TEST_PATH);
 }
 
+/* Task 1 (buffered-reader groundwork): the host FatFs shim gains a real f_read
+ * over stdio fread plus a call counter, so the buffered ff_read_line() rewrite
+ * can be exercised on the PC and its read-call count asserted. Nothing in
+ * flipper_file.c calls f_read yet — this proves the shim addition works in
+ * isolation: chunked reads return the right bytes with a short count at EOF, and
+ * the counter ticks exactly once per call (the seam the perf guard later relies
+ * on). */
+static void test_f_read_chunks(void)
+{
+	FIL   fp;
+	FILE *w;
+	char  buf[4];
+	UINT  br;
+
+	printf("test_f_read_chunks\n");
+
+	/* Seed a known 10-byte payload straddling the 4-byte read window. */
+	w = fopen(FREAD_PATH, "wb");
+	CHECK(w != NULL, "f_read: seed open");
+	CHECK_EQ_INT(fwrite("ABCDEFGHIJ", 1, 10, w), 10, "f_read: seed write");
+	fclose(w);
+
+	CHECK(f_open(&fp, FREAD_PATH, FA_READ | FA_OPEN_EXISTING) == FR_OK,
+	      "f_read: open");
+	ff_shim_read_calls_reset();
+	CHECK_EQ_INT(ff_shim_read_calls(), 0, "f_read: counter reset to 0");
+
+	/* Full window #1: ABCD. */
+	CHECK(f_read(&fp, buf, 4, &br) == FR_OK, "f_read: call 1 FR_OK");
+	CHECK_EQ_INT(br, 4, "f_read: call 1 read 4");
+	CHECK(memcmp(buf, "ABCD", 4) == 0, "f_read: call 1 bytes");
+
+	/* Full window #2: EFGH. */
+	CHECK(f_read(&fp, buf, 4, &br) == FR_OK, "f_read: call 2 FR_OK");
+	CHECK_EQ_INT(br, 4, "f_read: call 2 read 4");
+	CHECK(memcmp(buf, "EFGH", 4) == 0, "f_read: call 2 bytes");
+
+	/* Short window at EOF: IJ (2 of 4 requested), still FR_OK. */
+	CHECK(f_read(&fp, buf, 4, &br) == FR_OK, "f_read: call 3 FR_OK");
+	CHECK_EQ_INT(br, 2, "f_read: call 3 short count at EOF");
+	CHECK(memcmp(buf, "IJ", 2) == 0, "f_read: call 3 bytes");
+
+	/* Past EOF: zero bytes, still FR_OK (real FatFs contract). */
+	CHECK(f_read(&fp, buf, 4, &br) == FR_OK, "f_read: call 4 FR_OK at EOF");
+	CHECK_EQ_INT(br, 0, "f_read: call 4 zero at EOF");
+
+	/* Counter ticked exactly once per f_read call (4 calls above). */
+	CHECK_EQ_INT(ff_shim_read_calls(), 4, "f_read: counted one per call");
+
+	f_close(&fp);
+	f_unlink(FREAD_PATH);
+}
+
 int main(void)
 {
 	printf("== Flipper .ir host round-trip tests ==\n");
 
+	test_f_read_chunks();
 	test_append_roundtrip();
 	test_rewrite_edit();
 	test_create_empty_remote();

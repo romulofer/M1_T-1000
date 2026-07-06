@@ -14,6 +14,10 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+/* Host-test instrumentation: how many times f_read() has been called since the
+ * last reset. Used only by the buffered-reader perf guard (see ff.h). */
+static unsigned long g_read_calls = 0;
+
 /*============================================================================*/
 /**
  * @brief  Map a FatFs access mode to an fopen() mode string and open the file.
@@ -50,6 +54,44 @@ FRESULT f_close(FIL *fp)
 	fclose(fp->fp);
 	fp->fp = NULL;
 	return FR_OK;
+}
+
+/*============================================================================*/
+/**
+ * @brief  Read up to btr bytes at the current position (real FatFs signature).
+ *         Sets *br to the bytes actually read; *br < btr (or 0) signals EOF.
+ *         Every call bumps the instrumentation counter (ff_shim_read_calls()).
+ */
+FRESULT f_read(FIL *fp, void *buff, UINT btr, UINT *br)
+{
+	size_t n;
+
+	if (fp == NULL || fp->fp == NULL || buff == NULL)
+		return FR_INVALID_OBJECT;
+
+	g_read_calls++;
+
+	n = fread(buff, 1, (size_t)btr, fp->fp);
+	if (br != NULL)
+		*br = (UINT)n;
+
+	/* A short read is normal EOF; only a real stream error is a disk error. */
+	if (n < (size_t)btr && ferror(fp->fp))
+		return FR_DISK_ERR;
+
+	return FR_OK;
+}
+
+/*============================================================================*/
+/* Host-test instrumentation accessors (see ff.h). */
+void ff_shim_read_calls_reset(void)
+{
+	g_read_calls = 0;
+}
+
+unsigned long ff_shim_read_calls(void)
+{
+	return g_read_calls;
 }
 
 /*============================================================================*/

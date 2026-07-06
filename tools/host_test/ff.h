@@ -56,10 +56,20 @@ typedef enum {
 
 FRESULT f_open   (FIL *fp, const TCHAR *path, BYTE mode);
 FRESULT f_close  (FIL *fp);
+FRESULT f_read   (FIL *fp, void *buff, UINT btr, UINT *br);
 FRESULT f_unlink (const TCHAR *path);
 FRESULT f_rename (const TCHAR *path_old, const TCHAR *path_new);
 FRESULT f_stat   (const TCHAR *path, FILINFO *fno);
 int     f_printf (FIL *fp, const TCHAR *str, ...);
 TCHAR  *f_gets   (TCHAR *buff, int len, FIL *fp);
+
+/*
+ * Host-test instrumentation — NOT part of the FatFs API, never in firmware.
+ * Counts f_read() calls so the buffered-reader perf guard can prove
+ * ff_read_line() refills in O(bytes / FF_READ_CHUNK) reads instead of one per
+ * byte. Reset before a parse, read the tally after.
+ */
+void          ff_shim_read_calls_reset(void);
+unsigned long ff_shim_read_calls(void);
 
 #endif /* FF_H_ */
