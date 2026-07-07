@@ -1301,7 +1301,7 @@ static void uremote_tv_screen(void)
 		strncpy(s_browse_names[i], cat->functions[i].label, BROWSE_NAME_MAX_LEN - 1);
 		s_browse_names[i][BROWSE_NAME_MAX_LEN - 1] = '\0';
 	}
-	s_browse_count = cat->function_count;
+	s_browse_count = (cat->function_count < BROWSE_NAMES_MAX) ? cat->function_count : BROWSE_NAMES_MAX;
 
 	draw_list_screen(cat->menu_label, s_browse_count, selection);
 
@@ -1320,7 +1320,7 @@ static void uremote_tv_screen(void)
 		}
 		else if (this_button_status.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK)
 		{
-			selection = (selection > 0) ? (selection - 1) : (s_browse_count - 1);
+			selection = (selection > 0) ? (selection - 1) : (s_browse_count ? s_browse_count - 1 : 0);
 		}
 		else if (this_button_status.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK)
 		{
@@ -1351,10 +1351,7 @@ static bool uremote_fire_cmd(const ir_universal_cmd_t *cmd)
 		return false;
 
 	if (cmd->is_raw)
-	{
-		transmit_raw_command(cmd);   /* uses s_raw_tx_filepath, set by caller */
-		return true;
-	}
+		return false;   /* brute-force is parsed-only; raw is skipped upstream */
 
 	if (cmd->protocol == IRMP_UNKNOWN_PROTOCOL || cmd->protocol == 0)
 		return false;
