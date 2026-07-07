@@ -2501,26 +2501,9 @@ uint8_t sub_ghz_replay_flipper_file(const char *sub_path)
 				    sub_ghz_replay_continue(subghz_replay_ret_code);
 				if (subghz_replay_ret_code == SUB_GHZ_RAW_DATA_PARSER_IDLE)
 				{
-					/* Auto-restart: loop continuously until BACK */
-					sub_ghz_set_opmode(SUB_GHZ_OPMODE_TX,
-					                   subghz_replay_band,
-					                   subghz_replay_channel,
-					                   tx_power_values[subghz_tx_power_idx]);
-					subghz_replay_ret_code = sub_ghz_raw_replay_init();
-					if (subghz_replay_ret_code != 1)
-					{
-						double_buffer_ptr_id = 1;
-						subghz_decenc_ctl.ntx_raw_repeat =
-						    SUBGHZ_TX_RAW_REPLAY_REPEAT_DEFAULT;
-					}
-					else
-					{
-						/* Restart failed — stop */
-						m1_led_fast_blink(LED_BLINK_ON_RGB,
-						                  LED_FASTBLINK_PWM_OFF,
-						                  LED_FASTBLINK_ONTIME_OFF);
-						subghz_replay_ret_code = SUB_GHZ_RAW_DATA_PARSER_IDLE;
-					}
+					m1_led_fast_blink(LED_BLINK_ON_RGB,
+					                  LED_FASTBLINK_PWM_OFF,
+					                  LED_FASTBLINK_ONTIME_OFF);
 				}
 			}
 		} /* while (running) */
@@ -3043,21 +3026,9 @@ static void sub_ghz_saved_action_menu(const char *filepath, const char *filename
 									subghz_replay_ret_code = sub_ghz_replay_continue(subghz_replay_ret_code);
 									if (subghz_replay_ret_code == SUB_GHZ_RAW_DATA_PARSER_IDLE)
 									{
-										/* Auto-restart: loop until BACK */
-										sub_ghz_set_opmode(SUB_GHZ_OPMODE_TX,
-										    subghz_replay_band, subghz_replay_channel,
-										    tx_power_values[subghz_tx_power_idx]);
-										subghz_replay_ret_code = sub_ghz_raw_replay_init();
-										if (subghz_replay_ret_code != 1)
-										{
-											double_buffer_ptr_id = 1;
-											subghz_decenc_ctl.ntx_raw_repeat = SUBGHZ_TX_RAW_REPLAY_REPEAT_DEFAULT;
-										}
-										else
-										{
-											m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
-											subghz_replay_ret_code = SUB_GHZ_RAW_DATA_PARSER_IDLE;
-										}
+										m1_led_fast_blink(LED_BLINK_ON_RGB,
+										                  LED_FASTBLINK_PWM_OFF,
+										                  LED_FASTBLINK_ONTIME_OFF);
 									}
 								}
 							}
