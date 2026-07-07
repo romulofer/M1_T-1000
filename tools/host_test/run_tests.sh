@@ -44,5 +44,19 @@ SUBGHZ_BIN="$DIR/test_subghz_rssi"
 	-I"$ROOT/m1_csrc" \
 	"$DIR/test_subghz_rssi.c" \
 	-o "$SUBGHZ_BIN"
-"$SUBGHZ_BIN"
-exit $?
+"$SUBGHZ_BIN" || exit $?
+
+# Universal-remote brute-force streaming name-filter (Task 1).
+UREMOTE_BIN="$DIR/test_uremote_bf"
+"$CC" -std=c11 -Wall -Wextra -O0 -g \
+	-I"$DIR" -I"$ROOT/m1_csrc" \
+	"$DIR/test_uremote_bf.c" \
+	"$DIR/ff_shim.c" \
+	"$ROOT/m1_csrc/flipper_file.c" \
+	"$ROOT/m1_csrc/m1_uremote_bf.c" \
+	-o "$UREMOTE_BIN"
+SCRATCH2="$(mktemp -d)"
+( cd "$SCRATCH2" && "$UREMOTE_BIN" )
+rc=$?
+rm -rf "$SCRATCH2"
+exit $rc
