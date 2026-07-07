@@ -39,7 +39,7 @@
 #define BROWSE_NAMES_MAX     16
 #define BROWSE_NAME_MAX_LEN  64
 
-#define DASHBOARD_ITEM_COUNT  7
+#define DASHBOARD_ITEM_COUNT  8
 
 /* Power-code databases blasted by the "Power Off" actions */
 #define IR_POWER_DB_PATH      IR_UNIVERSAL_IRDB_ROOT "/TV/Universal_Power.ir"
@@ -96,7 +96,8 @@ static const char *s_dashboard_items[DASHBOARD_ITEM_COUNT] = {
 	"Recent",
 	"Remote Mode",
 	"Power Off TVs",
-	"Power Off A/V"
+	"Power Off A/V",
+	"Universal TV"
 };
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
@@ -123,6 +124,9 @@ static bool is_ir_file(const char *fname);
 static void path_append(char *base, const char *item);
 static void path_go_up(char *path);
 static uint16_t parse_ir_file(const char *filepath);
+static void uremote_tv_screen(void);
+static void uremote_bf_run(const char *file_path, const uremote_function_t *fn);
+static bool uremote_fire_cmd(const ir_universal_cmd_t *cmd);
 
 /*************** F U N C T I O N   I M P L E M E N T A T I O N ****************/
 
@@ -363,6 +367,9 @@ static void dashboard_screen(void)
 							break;
 						case 6: /* Power Off A/V — soundbars, receivers, projectors */
 							power_off_av_blast();
+							break;
+						case 7: /* Universal TV — Flipper-style brute-force remote */
+							uremote_tv_screen();
 							break;
 						default:
 							break;
@@ -1269,6 +1276,212 @@ static void power_off_av_blast(void)
 	static const char *const av_paths[] = { IR_AUDIO_DB_PATH, IR_PROJ_DB_PATH };
 	ir_power_blast("Power Off A/V", av_paths, 2);
 }
+
+
+
+/*============================================================================*/
+/*
+ * Flipper-style universal TV screen: list the fixed function buttons
+ * (Power / Vol / Ch / Mute); OK brute-forces the selected function across
+ * every brand in tv.ir; BACK returns to the dashboard.
+ */
+/*============================================================================*/
+static void uremote_tv_screen(void)
+{
+	S_M1_Buttons_Status this_button_status;
+	S_M1_Main_Q_t q_item;
+	BaseType_t ret;
+	const uremote_category_t *cat = &uremote_category_tv;
+	uint16_t selection = 0;
+	uint8_t i;
+
+	/* Load function labels into the shared list-name buffer. */
+	for (i = 0; i < cat->function_count && i < BROWSE_NAMES_MAX; i++)
+	{
+		strncpy(s_browse_names[i], cat->functions[i].label, BROWSE_NAME_MAX_LEN - 1);
+		s_browse_names[i][BROWSE_NAME_MAX_LEN - 1] = '\0';
+	}
+	s_browse_count = cat->function_count;
+
+	draw_list_screen(cat->menu_label, s_browse_count, selection);
+
+	while (1)
+	{
+		ret = xQueueReceive(main_q_hdl, &q_item, portMAX_DELAY);
+		if (ret != pdTRUE || q_item.q_evt_type != Q_EVENT_KEYPAD)
+			continue;
+
+		ret = xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+
+		if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			xQueueReset(main_q_hdl);
+			return;
+		}
+		else if (this_button_status.event[BUTTON_UP_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			selection = (selection > 0) ? (selection - 1) : (s_browse_count - 1);
+		}
+		else if (this_button_status.event[BUTTON_DOWN_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			selection = (selection < s_browse_count - 1) ? (selection + 1) : 0;
+		}
+		else if (this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			if (selection < cat->function_count)
+				uremote_bf_run(cat->ir_file_path, &cat->functions[selection]);
+		}
+
+		draw_list_screen(cat->menu_label, s_browse_count, selection);
+	}
+} // static void uremote_tv_screen(void)
+
+
+
+/*============================================================================*/
+/*
+ * Encode and transmit one universal-remote command. No per-code screen — the
+ * brute-force loop owns the display. Mirrors transmit_command()'s TX path.
+ * Returns true if a frame was actually kicked off.
+ */
+/*============================================================================*/
+static bool uremote_fire_cmd(const ir_universal_cmd_t *cmd)
+{
+	if (cmd == NULL || !cmd->valid)
+		return false;
+
+	if (cmd->is_raw)
+	{
+		transmit_raw_command(cmd);   /* uses s_raw_tx_filepath, set by caller */
+		return true;
+	}
+
+	if (cmd->protocol == IRMP_UNKNOWN_PROTOCOL || cmd->protocol == 0)
+		return false;
+
+	s_tx_irmp_data.protocol = cmd->protocol;
+	s_tx_irmp_data.address  = cmd->address;
+	s_tx_irmp_data.command  = cmd->command;
+	s_tx_irmp_data.flags    = cmd->flags;
+
+	infrared_encode_sys_init();
+	irsnd_generate_tx_data(s_tx_irmp_data);
+	infrared_transmit(1);
+	infrared_transmit(0);
+	return true;
+} // static bool uremote_fire_cmd(...)
+
+/* Shared state for the brute-force callback (progress + abort). */
+typedef struct {
+	const char *label;
+	uint16_t    total;
+	uint16_t    sent;
+	bool        aborted;
+} uremote_bf_ctx_t;
+
+/*============================================================================*/
+/*
+ * Brute-force callback: fire one code, draw progress "<label>  n/total",
+ * pace ~200 ms, and stop the sweep on a BACK press.
+ */
+/*============================================================================*/
+static bool uremote_bf_fire_cb(void *vctx, const ir_universal_cmd_t *cmd, uint16_t match_index)
+{
+	uremote_bf_ctx_t *c = (uremote_bf_ctx_t *)vctx;
+	S_M1_Buttons_Status this_button_status;
+	S_M1_Main_Q_t q_item;
+	char line[28];
+
+	(void)match_index;
+
+	/* Non-blocking BACK/LEFT abort check. */
+	if (xQueueReceive(main_q_hdl, &q_item, 0) == pdTRUE &&
+	    q_item.q_evt_type == Q_EVENT_KEYPAD)
+	{
+		xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+		if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK ||
+		    this_button_status.event[BUTTON_LEFT_KP_ID] == BUTTON_EVENT_CLICK)
+		{
+			c->aborted = true;
+			return false;
+		}
+	}
+
+	/* Progress screen. */
+	u8g2_FirstPage(&m1_u8g2);
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(&m1_u8g2, 12, 16, c->label);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	snprintf(line, sizeof(line), "Sending %u/%u",
+	         (unsigned)(c->sent + 1), (unsigned)c->total);
+	u8g2_DrawStr(&m1_u8g2, 6, 34, line);
+	u8g2_DrawStr(&m1_u8g2, 6, 60, "BACK to stop");
+	m1_u8g2_nextpage();
+
+	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
+
+	if (uremote_fire_cmd(cmd))
+		c->sent++;
+
+	vTaskDelay(pdMS_TO_TICKS(220));   /* let the frame finish before the next code */
+	return true;
+} // static bool uremote_bf_fire_cb(...)
+
+/*============================================================================*/
+/*
+ * Brute-force one function across every brand in `file_path`: pre-count the
+ * matching records, then stream + fire them with progress. BACK stops.
+ */
+/*============================================================================*/
+static void uremote_bf_run(const char *file_path, const uremote_function_t *fn)
+{
+	uremote_bf_ctx_t c;
+	char line[28];
+
+	/* Point raw TX (if any record is raw) at this library file. */
+	strncpy(s_raw_tx_filepath, file_path, IR_UNIVERSAL_PATH_MAX_LEN - 1);
+	s_raw_tx_filepath[IR_UNIVERSAL_PATH_MAX_LEN - 1] = '\0';
+
+	c.label   = fn->label;
+	c.total   = uremote_bf_stream(file_path, fn->record_name, NULL, NULL);
+	c.sent    = 0;
+	c.aborted = false;
+
+	if (c.total == 0)
+	{
+		u8g2_FirstPage(&m1_u8g2);
+		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+		u8g2_DrawStr(&m1_u8g2, 12, 18, "No codes");
+		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+		u8g2_DrawStr(&m1_u8g2, 4, 36, "Copy tv.ir to");
+		u8g2_DrawStr(&m1_u8g2, 4, 48, "0:/IR/Universal/");
+		m1_u8g2_nextpage();
+		vTaskDelay(pdMS_TO_TICKS(1800));
+		xQueueReset(main_q_hdl);
+		return;
+	}
+
+	uremote_bf_stream(file_path, fn->record_name, uremote_bf_fire_cb, &c);
+
+	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
+	infrared_encode_sys_deinit();
+
+	/* Result screen. */
+	u8g2_FirstPage(&m1_u8g2);
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(&m1_u8g2, 18, 28, c.aborted ? "Stopped" : "Done");
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	snprintf(line, sizeof(line), "%u codes sent", (unsigned)c.sent);
+	u8g2_DrawStr(&m1_u8g2, 18, 44, line);
+	m1_u8g2_nextpage();
+	m1_buzzer_notification();
+	vTaskDelay(pdMS_TO_TICKS(1200));
+
+	xQueueReset(main_q_hdl);
+} // static void uremote_bf_run(...)
 
 
 
