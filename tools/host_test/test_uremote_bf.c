@@ -61,6 +61,8 @@ static const char *k_lib =
 	"name: Vol_up\ntype: parsed\nprotocol: SIRC\naddress: 01 00 00 00\ncommand: 12 00 00 00\n"
 	"#\n"
 	"name: Power\ntype: parsed\nprotocol: Samsung32\naddress: 07 07 00 00\ncommand: 02 00 00 00\n"
+	"#\n"
+	"name: Power\ntype: raw\nfrequency: 38000\nduty_cycle: 0.33\ndata: 9000 4500 560 560 560 1690\n"
 	"#\n";
 
 static void write_fixture(const char *path, const char *body)
@@ -95,7 +97,7 @@ int main(void)
 	write_fixture(FIX_LIB, k_lib);
 
 	/* Count pass (cb == NULL) counts only matching records. */
-	CHECK_EQ_INT(uremote_bf_stream(FIX_LIB, "Power", NULL, NULL), 3, "count Power");
+	CHECK_EQ_INT(uremote_bf_stream(FIX_LIB, "Power", NULL, NULL), 3, "count Power"); /* 3 parsed Power; the raw Power is skipped */
 	CHECK_EQ_INT(uremote_bf_stream(FIX_LIB, "Vol_up", NULL, NULL), 2, "count Vol_up");
 	CHECK_EQ_INT(uremote_bf_stream(FIX_LIB, "Mute", NULL, NULL), 1, "count Mute");
 	CHECK_EQ_INT(uremote_bf_stream(FIX_LIB, "Ch_next", NULL, NULL), 0, "count missing");

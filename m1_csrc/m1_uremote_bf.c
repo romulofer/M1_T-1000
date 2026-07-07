@@ -155,7 +155,9 @@ bool uremote_parse_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd)
 }
 
 /*============================================================================*/
-/* Stream a library/signals file, handling every record named `record_name`.  */
+/* Stream a library/signals file, handling every parsed record named           */
+/* `record_name`. Raw records are matched by name but skipped (not counted,     */
+/* not fired): v1 brute-force is parsed-only.                                    */
 /*============================================================================*/
 uint16_t uremote_bf_stream(const char *path, const char *record_name,
                            uremote_bf_cb_t cb, void *ctx)
@@ -192,6 +194,11 @@ uint16_t uremote_bf_stream(const char *path, const char *record_name,
 			continue;   /* skip invalid / unknown-protocol block */
 		}
 		if (strcmp(cmd.name, record_name) != 0)
+			continue;
+		/* v1 brute-force is parsed-only: transmit_raw_command() locates raw
+		 * signals by name and can't target the Nth same-named brand, so raw
+		 * records are skipped here to keep the count and the sweep honest. */
+		if (cmd.is_raw)
 			continue;
 
 		if (cb != NULL)

@@ -32,7 +32,9 @@ bool uremote_parse_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd);
 /* Callback invoked once per matching record. Return false to stop early. */
 typedef bool (*uremote_bf_cb_t)(void *ctx, const ir_universal_cmd_t *cmd, uint16_t match_index);
 
-/* Stream `path`, invoking `cb` for every record whose name == `record_name`.
+/* Stream `path`, invoking `cb` for every parsed record whose name ==
+ * `record_name`. Matches parsed records only: raw records are skipped (v1
+ * brute-force is parsed-only), so they are neither counted nor fired.
  * If `cb` is NULL, records are only counted (no transmission). Accepts both
  * "IR library file" and "IR signals file" headers. O(1) memory.
  * Returns the number of matching records handled (or counted). */
