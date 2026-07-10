@@ -26,20 +26,25 @@
 uint8_t uremote_map_flipper_protocol(const char *name);
 
 /* Parse one signal block from a positioned flipper_file cursor.
- * Returns true and fills *cmd on a valid parsed or raw block. */
-bool uremote_parse_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd);
+ * Returns true and fills *cmd on a valid parsed or raw block.
+ * raw_out/raw_cap optional: for a raw record, up to raw_cap timing samples are
+ * written to raw_out and cmd->raw_count is set to the stored count. Pass NULL/0
+ * to keep count-only behaviour (parsed records ignore these). */
+bool uremote_parse_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd,
+                                int32_t *raw_out, uint16_t raw_cap);
 
 /* Callback invoked once per matching record. Return false to stop early. */
 typedef bool (*uremote_bf_cb_t)(void *ctx, const ir_universal_cmd_t *cmd, uint16_t match_index);
 
-/* Stream `path`, invoking `cb` for every parsed record whose name ==
- * `record_name`. Matches parsed records only: raw records are skipped (v1
- * brute-force is parsed-only), so they are neither counted nor fired.
- * If `cb` is NULL, records are only counted (no transmission). Accepts both
+/* Stream `path`, invoking `cb` for every record (parsed or raw) whose name ==
+ * `record_name`. If `cb` is NULL, records are only counted (no transmission).
+ * raw_out/raw_cap are forwarded to uremote_parse_signal_block() for raw
+ * records; pass NULL/0 if raw samples are not needed. Accepts both
  * "IR library file" and "IR signals file" headers. O(1) memory.
  * Returns the number of matching records handled (or counted). */
 uint16_t uremote_bf_stream(const char *path, const char *record_name,
-                           uremote_bf_cb_t cb, void *ctx);
+                           uremote_bf_cb_t cb, void *ctx,
+                           int32_t *raw_out, uint16_t raw_cap);
 
 /* One selectable function on a category screen. */
 typedef struct {

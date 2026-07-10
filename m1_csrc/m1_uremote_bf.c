@@ -58,7 +58,8 @@ uint8_t uremote_map_flipper_protocol(const char *name)
 /*============================================================================*/
 /* Parse a single IR signal block from a positioned flipper_file cursor.      */
 /*============================================================================*/
-bool uremote_parse_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd)
+bool uremote_parse_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd,
+                                int32_t *raw_out, uint16_t raw_cap)
 {
 	bool got_name = false;
 	bool got_type = false;
@@ -127,11 +128,13 @@ bool uremote_parse_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd)
 					p++;
 				if (*p == '\0')
 					break;
+				if (raw_out != NULL && count < raw_cap)
+					raw_out[count] = (int32_t)strtol(p, NULL, 10);
 				count++;
 				while (*p && *p != ' ')
 					p++;
 			}
-			cmd->raw_count = count;
+			cmd->raw_count = (raw_out != NULL && count > raw_cap) ? raw_cap : count;
 		}
 	}
 
@@ -155,12 +158,12 @@ bool uremote_parse_signal_block(flipper_file_t *ff, ir_universal_cmd_t *cmd)
 }
 
 /*============================================================================*/
-/* Stream a library/signals file, handling every parsed record named           */
-/* `record_name`. Raw records are matched by name but skipped (not counted,     */
-/* not fired): v1 brute-force is parsed-only.                                    */
+/* Stream a library/signals file, handling every record (parsed or raw) named  */
+/* `record_name`.                                                              */
 /*============================================================================*/
 uint16_t uremote_bf_stream(const char *path, const char *record_name,
-                           uremote_bf_cb_t cb, void *ctx)
+                           uremote_bf_cb_t cb, void *ctx,
+                           int32_t *raw_out, uint16_t raw_cap)
 {
 	flipper_file_t ff;
 	ir_universal_cmd_t cmd;
@@ -187,18 +190,13 @@ uint16_t uremote_bf_stream(const char *path, const char *record_name,
 
 	while (!ff.eof)
 	{
-		if (!uremote_parse_signal_block(&ff, &cmd))
+		if (!uremote_parse_signal_block(&ff, &cmd, raw_out, raw_cap))
 		{
 			if (ff.eof)
 				break;
 			continue;   /* skip invalid / unknown-protocol block */
 		}
 		if (strcmp(cmd.name, record_name) != 0)
-			continue;
-		/* v1 brute-force is parsed-only: transmit_raw_command() locates raw
-		 * signals by name and can't target the Nth same-named brand, so raw
-		 * records are skipped here to keep the count and the sweep honest. */
-		if (cmd.is_raw)
 			continue;
 
 		if (cb != NULL)

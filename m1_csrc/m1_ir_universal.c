@@ -815,7 +815,7 @@ static uint16_t parse_ir_file(const char *filepath)
 	/* Parse signal blocks */
 	while (count < IR_UNIVERSAL_MAX_CMDS)
 	{
-		if (!uremote_parse_signal_block(&ff, &s_commands[count]))
+		if (!uremote_parse_signal_block(&ff, &s_commands[count], NULL, 0))
 		{
 			/* Check if we've reached EOF */
 			if (ff.eof)
@@ -1359,7 +1359,7 @@ static bool uremote_fire_cmd(const ir_universal_cmd_t *cmd)
 		return false;
 
 	if (cmd->is_raw)
-		return false;   /* brute-force is parsed-only; raw is skipped upstream */
+		return false;   /* raw TX not wired yet (later task); drop raw here for now */
 
 	if (cmd->protocol == IRMP_UNKNOWN_PROTOCOL || cmd->protocol == 0)
 		return false;
@@ -1478,7 +1478,7 @@ static void uremote_bf_run(const char *file_path, const uremote_function_t *fn)
 	u8g2_DrawStr(&m1_u8g2, 6, 60, "BACK to stop");
 	m1_u8g2_nextpage();
 
-	uremote_bf_stream(file_path, fn->record_name, uremote_bf_fire_cb, &c);
+	uremote_bf_stream(file_path, fn->record_name, uremote_bf_fire_cb, &c, NULL, 0);
 
 	if (c.sent == 0 && !c.aborted)
 	{
