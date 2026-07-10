@@ -60,6 +60,14 @@
 
 #define IR_FILE_EXTENSION     ".ir"
 
+/* Brute-force fires each code as a short burst of frames (a lone one-shot frame
+ * makes some TVs blink their standby LED on reception but never latch POWER, as
+ * a debounce against spurious toggles). N frames ~= a short button tap. The
+ * single-frame TX path (uremote_fire_cmd) is re-kicked per frame with a gap long
+ * enough for one Samsung32/NEC frame (~40 ms) to finish. */
+#define UREMOTE_BF_FRAME_REPEATS   4
+#define UREMOTE_BF_FRAME_GAP_MS    75
+
 //************************** S T R U C T U R E S *******************************
 
 //****************************** V A R I A B L E S *****************************/
@@ -1371,15 +1379,14 @@ static bool uremote_fire_cmd(const ir_universal_cmd_t *cmd)
 /* Shared state for the brute-force callback (progress + abort). */
 typedef struct {
 	const char *label;
-	uint16_t    total;
 	uint16_t    sent;
 	bool        aborted;
 } uremote_bf_ctx_t;
 
 /*============================================================================*/
 /*
- * Brute-force callback: fire one code, draw progress "<label>  n/total",
- * pace ~200 ms, and stop the sweep on a BACK press.
+ * Brute-force callback: fire one code as a short burst, draw running progress
+ * "<label> / Sending N", and stop the sweep on a BACK press.
  */
 /*============================================================================*/
 static bool uremote_bf_fire_cb(void *vctx, const ir_universal_cmd_t *cmd, uint16_t match_index)
@@ -1410,25 +1417,41 @@ static bool uremote_bf_fire_cb(void *vctx, const ir_universal_cmd_t *cmd, uint16
 	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
 	u8g2_DrawStr(&m1_u8g2, 12, 16, c->label);
 	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-	snprintf(line, sizeof(line), "Sending %u/%u",
-	         (unsigned)(c->sent + 1), (unsigned)c->total);
+	snprintf(line, sizeof(line), "Sending %u", (unsigned)(c->sent + 1));
 	u8g2_DrawStr(&m1_u8g2, 6, 34, line);
 	u8g2_DrawStr(&m1_u8g2, 6, 60, "BACK to stop");
 	m1_u8g2_nextpage();
 
 	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_M, LED_FASTBLINK_ONTIME_M);
 
-	if (uremote_fire_cmd(cmd))
-		c->sent++;
+	/* Fire the code as a short burst so the TV treats it like a real key press.
+	 * Each uremote_fire_cmd() sends one frame; re-kick with a gap so the frame
+	 * finishes before the next. Count the code once regardless of frame count. */
+	{
+		bool fired = false;
+		for (uint8_t r = 0; r < UREMOTE_BF_FRAME_REPEATS; r++)
+		{
+			if (!uremote_fire_cmd(cmd))
+				break;
+			fired = true;
+			vTaskDelay(pdMS_TO_TICKS(UREMOTE_BF_FRAME_GAP_MS));
+		}
+		if (fired)
+			c->sent++;
+	}
 
-	vTaskDelay(pdMS_TO_TICKS(220));   /* let the frame finish before the next code */
+	vTaskDelay(pdMS_TO_TICKS(160));   /* settle gap before the next code */
 	return true;
 } // static bool uremote_bf_fire_cb(...)
 
 /*============================================================================*/
 /*
- * Brute-force one function across every brand in `file_path`: pre-count the
- * matching records, then stream + fire them with progress. BACK stops.
+ * Brute-force one function across every brand in `file_path`: a single
+ * streaming pass fires each match as it is parsed, with running progress.
+ * BACK stops. No pre-count pass — that meant reading the whole ~5000-line
+ * library from the SD card twice and left the old screen up (multi-second
+ * lag before anything drew or transmitted). Total is unknown up front, so
+ * progress shows a running "Sending N".
  */
 /*============================================================================*/
 static void uremote_bf_run(const char *file_path, const uremote_function_t *fn)
@@ -1441,12 +1464,26 @@ static void uremote_bf_run(const char *file_path, const uremote_function_t *fn)
 	s_raw_tx_filepath[IR_UNIVERSAL_PATH_MAX_LEN - 1] = '\0';
 
 	c.label   = fn->label;
-	c.total   = uremote_bf_stream(file_path, fn->record_name, NULL, NULL);
 	c.sent    = 0;
 	c.aborted = false;
 
-	if (c.total == 0)
+	/* Instant feedback before touching the SD card, so the screen changes the
+	 * moment the button is pressed rather than after the library is scanned. */
+	u8g2_FirstPage(&m1_u8g2);
+	u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
+	u8g2_DrawStr(&m1_u8g2, 12, 16, c.label);
+	u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
+	u8g2_DrawStr(&m1_u8g2, 6, 34, "Starting...");
+	u8g2_DrawStr(&m1_u8g2, 6, 60, "BACK to stop");
+	m1_u8g2_nextpage();
+
+	uremote_bf_stream(file_path, fn->record_name, uremote_bf_fire_cb, &c);
+
+	if (c.sent == 0 && !c.aborted)
 	{
+		/* Nothing matched: the library is missing or has no such function. */
+		infrared_encode_sys_deinit();
 		u8g2_FirstPage(&m1_u8g2);
 		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
 		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
@@ -1459,8 +1496,6 @@ static void uremote_bf_run(const char *file_path, const uremote_function_t *fn)
 		xQueueReset(main_q_hdl);
 		return;
 	}
-
-	uremote_bf_stream(file_path, fn->record_name, uremote_bf_fire_cb, &c);
 
 	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
 	infrared_encode_sys_deinit();

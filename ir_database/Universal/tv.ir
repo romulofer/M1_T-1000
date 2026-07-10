@@ -1157,6 +1157,13 @@ protocol: Samsung32
 address: 07 00 00 00
 command: 98 00 00 00
 #
+# Samsung Power On (discrete)
+name: Power
+type: parsed
+protocol: Samsung32
+address: 07 00 00 00
+command: 99 00 00 00
+#
 name: Power
 type: parsed
 protocol: SIRC
@@ -4969,4 +4976,161 @@ type: parsed
 protocol: NECext
 address: 04 B9 00 00
 command: 15 EA 00 00
+##
+# --- Additional brand power codes (harvested from TV/Universal_Power.ir
+#     and per-brand TV/*.ir; deduped against the set above) ---
+#
+# Denon
+name: Power
+type: parsed
+protocol: Denon
+address: 08 00 00 00
+command: 00 00 00 00
+#
+# Sharp
+name: Power
+type: parsed
+protocol: Denon
+address: 0A 00 00 00
+command: 00 00 00 00
+#
+# JVC
+name: Power
+type: parsed
+protocol: JVC
+address: 03 00 00 00
+command: 00 00 00 00
+#
+# Panasonic
+name: Power
+type: parsed
+protocol: Kaseikyo
+address: 00 40 04 00
+command: 3D 00 00 00
+#
+# Panasonic_2
+name: Power
+type: parsed
+protocol: Kaseikyo
+address: 08 40 04 00
+command: 3D 00 00 00
+#
+# Hisense
+name: Power
+type: parsed
+protocol: NEC
+address: 00 00 00 00
+command: 08 00 00 00
+#
+# NEC_Generic_1
+name: Power
+type: parsed
+protocol: NEC
+address: 00 00 00 00
+command: 0C 00 00 00
+#
+# Hisense_2
+name: Power
+type: parsed
+protocol: NEC
+address: 01 00 00 00
+command: 08 00 00 00
+#
+# Toshiba_2
+name: Power
+type: parsed
+protocol: NEC
+address: 02 00 00 00
+command: 08 00 00 00
+#
+# LG_2
+name: Power
+type: parsed
+protocol: NEC
+address: 04 00 00 00
+command: C4 00 00 00
+#
+# NEC_Generic_2
+name: Power
+type: parsed
+protocol: NEC
+address: 08 00 00 00
+command: 08 00 00 00
+#
+# NEC_Generic_3
+name: Power
+type: parsed
+protocol: NEC
+address: 10 00 00 00
+command: 08 00 00 00
+#
+# Sanyo
+name: Power
+type: parsed
+protocol: NEC
+address: 1C 00 00 00
+command: 08 00 00 00
+#
+# NEC_Generic_4
+name: Power
+type: parsed
+protocol: NEC
+address: 20 00 00 00
+command: 08 00 00 00
+#
+# TCL
+name: Power
+type: parsed
+protocol: NEC
+address: 40 00 00 00
+command: 0C 00 00 00
+#
+# NEC_Generic_5
+name: Power
+type: parsed
+protocol: NEC
+address: 80 00 00 00
+command: 08 00 00 00
+#
+# Pioneer
+name: Power
+type: parsed
+protocol: NEC
+address: A5 00 00 00
+command: 1C 00 00 00
+#
+# RC6_Generic
+name: Power
+type: parsed
+protocol: RC6
+address: 01 00 00 00
+command: 0C 00 00 00
+#
+# RCA
+name: Power
+type: parsed
+protocol: RCA
+address: 0F 00 00 00
+command: 00 00 00 00
+#
+# Sony_2
+name: Power
+type: parsed
+protocol: SIRC
+address: 4D 00 00 00
+command: 15 00 00 00
+#
+# Sony_3
+name: Power
+type: parsed
+protocol: SIRC20
+address: 10 01 00 00
+command: 15 00 00 00
+#
+# Samsung_2
+name: Power
+type: parsed
+protocol: Samsung32
+address: 0B 00 00 00
+command: 02 00 00 00
 #
