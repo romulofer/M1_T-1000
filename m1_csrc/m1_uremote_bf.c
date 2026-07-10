@@ -234,3 +234,23 @@ const uremote_category_t uremote_category_tv = {
 	.functions      = s_tv_functions,
 	.function_count = (uint8_t)(sizeof(s_tv_functions) / sizeof(s_tv_functions[0])),
 };
+
+/*============================================================================*/
+/* AC category. ac.ir is mostly raw (per-brand full-state frames); the sweep    */
+/* now fires raw records, so these functions map to Flipper's universal AC set. */
+/*============================================================================*/
+static const uremote_function_t s_ac_functions[] = {
+	{ "Off",        "Off"     },
+	{ "Cool Hi",    "Cool_hi" },
+	{ "Cool Lo",    "Cool_lo" },
+	{ "Heat Hi",    "Heat_hi" },
+	{ "Heat Lo",    "Heat_lo" },
+	{ "Dehumidify", "Dh"      },
+};
+
+const uremote_category_t uremote_category_ac = {
+	.menu_label     = "Universal AC",
+	.ir_file_path   = IR_UNIVERSAL_IRDB_ROOT "/Universal/ac.ir",
+	.functions      = s_ac_functions,
+	.function_count = (uint8_t)(sizeof(s_ac_functions) / sizeof(s_ac_functions[0])),
+};

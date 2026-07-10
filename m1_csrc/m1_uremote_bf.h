@@ -61,5 +61,6 @@ typedef struct {
 } uremote_category_t;
 
 extern const uremote_category_t uremote_category_tv;
+extern const uremote_category_t uremote_category_ac;
 
 #endif /* M1_UREMOTE_BF_H_ */

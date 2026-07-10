@@ -39,7 +39,7 @@
 #define BROWSE_NAMES_MAX     16
 #define BROWSE_NAME_MAX_LEN  64
 
-#define DASHBOARD_ITEM_COUNT  8
+#define DASHBOARD_ITEM_COUNT  9
 
 /* Power-code databases blasted by the "Power Off" actions */
 #define IR_POWER_DB_PATH      IR_UNIVERSAL_IRDB_ROOT "/TV/Universal_Power.ir"
@@ -109,7 +109,8 @@ static const char *s_dashboard_items[DASHBOARD_ITEM_COUNT] = {
 	"Remote Mode",
 	"Power Off TVs",
 	"Power Off A/V",
-	"Universal TV"
+	"Universal TV",
+	"Universal AC"
 };
 
 /********************* F U N C T I O N   P R O T O T Y P E S ******************/
@@ -136,7 +137,9 @@ static bool is_ir_file(const char *fname);
 static void path_append(char *base, const char *item);
 static void path_go_up(char *path);
 static uint16_t parse_ir_file(const char *filepath);
+static void uremote_category_screen(const uremote_category_t *cat);
 static void uremote_tv_screen(void);
+static void uremote_ac_screen(void);
 static void uremote_bf_run(const char *file_path, const uremote_function_t *fn);
 static bool uremote_fire_cmd(const ir_universal_cmd_t *cmd);
 
@@ -382,6 +385,9 @@ static void dashboard_screen(void)
 							break;
 						case 7: /* Universal TV — Flipper-style brute-force remote */
 							uremote_tv_screen();
+							break;
+						case 8: /* Universal AC — raw-capable brute-force remote */
+							uremote_ac_screen();
 							break;
 						default:
 							break;
@@ -1303,17 +1309,17 @@ static void power_off_av_blast(void)
 
 /*============================================================================*/
 /*
- * Flipper-style universal TV screen: list the fixed function buttons
- * (Power / Vol / Ch / Mute); OK brute-forces the selected function across
- * every brand in tv.ir; BACK returns to the dashboard.
+ * Flipper-style universal category screen: list the category's fixed
+ * function buttons (e.g. TV: Power / Vol / Ch / Mute); OK brute-forces the
+ * selected function across every brand in the category's .ir file; BACK
+ * returns to the dashboard.
  */
 /*============================================================================*/
-static void uremote_tv_screen(void)
+static void uremote_category_screen(const uremote_category_t *cat)
 {
 	S_M1_Buttons_Status this_button_status;
 	S_M1_Main_Q_t q_item;
 	BaseType_t ret;
-	const uremote_category_t *cat = &uremote_category_tv;
 	uint16_t selection = 0;
 	uint8_t i;
 
@@ -1356,7 +1362,10 @@ static void uremote_tv_screen(void)
 
 		draw_list_screen(cat->menu_label, s_browse_count, selection);
 	}
-} // static void uremote_tv_screen(void)
+} // static void uremote_category_screen(const uremote_category_t *cat)
+
+static void uremote_tv_screen(void) { uremote_category_screen(&uremote_category_tv); }
+static void uremote_ac_screen(void) { uremote_category_screen(&uremote_category_ac); }
 
 
 
