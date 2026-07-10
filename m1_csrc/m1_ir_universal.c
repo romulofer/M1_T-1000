@@ -1529,14 +1529,19 @@ static void uremote_bf_run(const char *file_path, const uremote_function_t *fn)
 
 	if (c.sent == 0 && !c.aborted)
 	{
-		/* Nothing matched: the library is missing or has no such function. */
-		infrared_encode_sys_deinit();
+		/* Nothing matched: the library is missing or has no such function. No
+		 * code fired, so the IR encoder was never initialised — do NOT deinit
+		 * it here (that would DeInit a zero-Instance timer handle and fault on
+		 * a cold boot). Name the expected file from the category's path. */
+		const char *fname = strrchr(file_path, '/');
+		fname = fname ? (fname + 1) : file_path;
+		snprintf(line, sizeof(line), "Copy %s to", fname);
 		u8g2_FirstPage(&m1_u8g2);
 		u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
 		u8g2_SetFont(&m1_u8g2, M1_DISP_RUN_MENU_FONT_B);
 		u8g2_DrawStr(&m1_u8g2, 12, 18, "No codes");
 		u8g2_SetFont(&m1_u8g2, M1_DISP_FUNC_MENU_FONT_N);
-		u8g2_DrawStr(&m1_u8g2, 4, 36, "Copy tv.ir to");
+		u8g2_DrawStr(&m1_u8g2, 4, 36, line);
 		u8g2_DrawStr(&m1_u8g2, 4, 48, "0:/IR/Universal/");
 		m1_u8g2_nextpage();
 		vTaskDelay(pdMS_TO_TICKS(1800));
@@ -1544,8 +1549,14 @@ static void uremote_bf_run(const char *file_path, const uremote_function_t *fn)
 		return;
 	}
 
-	m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
-	infrared_encode_sys_deinit();
+	/* Only tear down the IR encoder if a code actually fired (c.sent > 0),
+	 * because init happens inside uremote_fire_cmd() on the first fire. A sweep
+	 * that matched nothing but was aborted never initialised the timers. */
+	if (c.sent > 0)
+	{
+		m1_led_fast_blink(LED_BLINK_ON_RGB, LED_FASTBLINK_PWM_OFF, LED_FASTBLINK_ONTIME_OFF);
+		infrared_encode_sys_deinit();
+	}
 
 	/* Result screen. */
 	u8g2_FirstPage(&m1_u8g2);

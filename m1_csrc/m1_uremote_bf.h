@@ -52,7 +52,7 @@ typedef struct {
 	const char *record_name;  /* matched in the .ir file, e.g. "Vol_up" */
 } uremote_function_t;
 
-/* A device category (v1: TV only). */
+/* A device category (e.g. TV, AC). */
 typedef struct {
 	const char               *menu_label;   /* e.g. "Universal TV" */
 	const char               *ir_file_path; /* e.g. "0:/IR/Universal/tv.ir" */
