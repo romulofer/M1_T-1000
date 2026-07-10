@@ -94,6 +94,10 @@ static IRMP_DATA s_tx_irmp_data;
 #define IR_RAW_OTA_BUFFER_MAX  FLIPPER_IR_RAW_MAX_SAMPLES
 static char s_raw_tx_filepath[IR_UNIVERSAL_PATH_MAX_LEN];
 static uint16_t s_raw_ota_buffer[IR_RAW_OTA_BUFFER_MAX];
+/* Raw timing samples for the brute-force sweep: the streaming parser fills this
+ * with the current raw record's samples; fire_raw_samples() transmits them.
+ * int32_t matches flipper_ir_signal_t.raw.samples (ac.ir gaps exceed 16 bits). */
+static int32_t s_uremote_raw_samples[FLIPPER_IR_RAW_MAX_SAMPLES];
 static flipper_ir_signal_t s_raw_tx_signal;
 
 /* Dashboard menu text (item 4 is dynamic: Remote/Normal Mode) */

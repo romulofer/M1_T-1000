@@ -14,7 +14,7 @@
 #include "flipper_file.h"
 #include "irmp.h"
 
-#define FLIPPER_IR_RAW_MAX_SAMPLES  512
+#define FLIPPER_IR_RAW_MAX_SAMPLES  640   /* ac.ir longest raw frame = 595 samples */
 #define FLIPPER_IR_NAME_MAX_LEN     32
 
 typedef enum {
