@@ -1029,6 +1029,63 @@ static void transmit_command(const ir_universal_cmd_t *cmd)
 
 
 /*============================================================================*/
+/* Convert alternating mark/space timing samples to the TIM16 OTA buffer and
+ * kick asynchronous TX. Shared by transmit_raw_command() and the brute-force
+ * raw fire path. Assumes infrared_encode_sys_init() has been called.          */
+/*============================================================================*/
+static void fire_raw_samples(const int32_t *samples, uint16_t count, uint32_t freq)
+{
+	uint16_t i, ota_len;
+	uint32_t duration;
+
+	if (samples == NULL || count == 0)
+		return;
+
+	ota_len = count;
+	if (ota_len > IR_RAW_OTA_BUFFER_MAX)
+		ota_len = IR_RAW_OTA_BUFFER_MAX;
+
+	for (i = 0; i < ota_len; i++)
+	{
+		duration = (uint32_t)abs((int)samples[i]);
+		if (duration > 65534)
+			duration = 65534;
+		if (duration < 2)
+			duration = 2;
+
+		if (i % 2 == 0)
+			s_raw_ota_buffer[i] = (uint16_t)duration | IR_OTA_PULSE_BIT_MASK;
+		else
+			s_raw_ota_buffer[i] = (uint16_t)duration & IR_OTA_SPACE_BIT_MASK;
+	}
+
+	irsnd_set_carrier_freq(freq);
+
+	ir_ota_data_tx_active   = TRUE;
+	ir_ota_data_tx_counter  = 0;
+	ir_ota_data_tx_len      = ota_len;
+	pir_ota_data_tx_buffer  = s_raw_ota_buffer;
+
+	__HAL_TIM_URS_ENABLE(&Timerhdl_IrTx);
+	Timerhdl_IrTx.Instance->ARR = s_raw_ota_buffer[0];
+	HAL_TIM_GenerateEvent(&Timerhdl_IrTx, TIM_EVENTSOURCE_UPDATE);
+	__HAL_TIM_URS_DISABLE(&Timerhdl_IrTx);
+
+	if (HAL_IS_BIT_SET(Timerhdl_IrTx.Instance->SR, TIM_FLAG_UPDATE))
+		CLEAR_BIT(Timerhdl_IrTx.Instance->SR, TIM_FLAG_UPDATE);
+
+	if (s_raw_ota_buffer[0] & 0x0001)
+		irsnd_on();
+
+	__HAL_TIM_ENABLE(&Timerhdl_IrTx);
+
+	if (ota_len > 1)
+		Timerhdl_IrTx.Instance->ARR = s_raw_ota_buffer[++ir_ota_data_tx_counter];
+}
+
+
+
+/*============================================================================*/
 /*
  * Transmit a raw IR signal.
  * Re-reads the .ir file to get timing data, converts to OTA buffer format,
@@ -1041,9 +1098,6 @@ static void transmit_command(const ir_universal_cmd_t *cmd)
 static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 {
 	flipper_file_t ff;
-	uint16_t i;
-	uint16_t ota_len;
-	uint32_t duration;
 	char tx_info[32];
 	bool found = false;
 
@@ -1100,56 +1154,12 @@ static void transmit_raw_command(const ir_universal_cmd_t *cmd)
 	u8g2_DrawStr(&m1_u8g2, 4, 45, tx_info);
 	m1_u8g2_nextpage();
 
-	/* Convert Flipper raw data to OTA buffer format.
-	 * Flipper raw: all positive values, alternating mark/space starting with mark.
-	 * OTA: uint16_t, LSB=1 for mark (carrier ON), LSB=0 for space (carrier OFF). */
-	ota_len = s_raw_tx_signal.raw.sample_count;
-	if (ota_len > IR_RAW_OTA_BUFFER_MAX)
-		ota_len = IR_RAW_OTA_BUFFER_MAX;
-
-	for (i = 0; i < ota_len; i++)
-	{
-		duration = (uint32_t)abs(s_raw_tx_signal.raw.samples[i]);
-		if (duration > 65534)
-			duration = 65534;
-		if (duration < 2)
-			duration = 2;
-
-		if (i % 2 == 0) /* Even index = mark (carrier ON) */
-			s_raw_ota_buffer[i] = (uint16_t)duration | IR_OTA_PULSE_BIT_MASK;
-		else /* Odd index = space (carrier OFF) */
-			s_raw_ota_buffer[i] = (uint16_t)duration & IR_OTA_SPACE_BIT_MASK;
-	}
-
 	/* Initialize the IR encoder hardware (TIM1 carrier + TIM16 baseband) */
 	infrared_encode_sys_init();
 
-	/* Set carrier frequency for this raw signal */
-	irsnd_set_carrier_freq(s_raw_tx_signal.raw.frequency);
-
-	/* Set up TX variables directly (bypassing IRSND OTA frame generation) */
-	ir_ota_data_tx_active = TRUE;
-	ir_ota_data_tx_counter = 0;
-	ir_ota_data_tx_len = ota_len;
-	pir_ota_data_tx_buffer = s_raw_ota_buffer;
-
-	/* Configure TIM16 with first entry and start transmission */
-	__HAL_TIM_URS_ENABLE(&Timerhdl_IrTx);
-	Timerhdl_IrTx.Instance->ARR = s_raw_ota_buffer[0];
-	HAL_TIM_GenerateEvent(&Timerhdl_IrTx, TIM_EVENTSOURCE_UPDATE);
-	__HAL_TIM_URS_DISABLE(&Timerhdl_IrTx);
-
-	if (HAL_IS_BIT_SET(Timerhdl_IrTx.Instance->SR, TIM_FLAG_UPDATE))
-		CLEAR_BIT(Timerhdl_IrTx.Instance->SR, TIM_FLAG_UPDATE);
-
-	if (s_raw_ota_buffer[0] & 0x0001) /* First entry is a mark */
-		irsnd_on();
-
-	__HAL_TIM_ENABLE(&Timerhdl_IrTx);
-
-	/* Load next entry for the second period */
-	if (ota_len > 1)
-		Timerhdl_IrTx.Instance->ARR = s_raw_ota_buffer[++ir_ota_data_tx_counter];
+	fire_raw_samples(s_raw_tx_signal.raw.samples,
+	                 (uint16_t)s_raw_tx_signal.raw.sample_count,
+	                 s_raw_tx_signal.raw.frequency);
 
 	m1_buzzer_notification();
 
