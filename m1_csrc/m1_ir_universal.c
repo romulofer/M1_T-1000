@@ -1373,7 +1373,13 @@ static bool uremote_fire_cmd(const ir_universal_cmd_t *cmd)
 		return false;
 
 	if (cmd->is_raw)
-		return false;   /* raw TX not wired yet (later task); drop raw here for now */
+	{
+		if (cmd->raw_count == 0 || cmd->raw_freq == 0)
+			return false;
+		infrared_encode_sys_init();
+		fire_raw_samples(s_uremote_raw_samples, cmd->raw_count, cmd->raw_freq);
+		return true;
+	}
 
 	if (cmd->protocol == IRMP_UNKNOWN_PROTOCOL || cmd->protocol == 0)
 		return false;
@@ -1441,6 +1447,23 @@ static bool uremote_bf_fire_cb(void *vctx, const ir_universal_cmd_t *cmd, uint16
 	/* Fire the code as a short burst so the TV treats it like a real key press.
 	 * Each uremote_fire_cmd() sends one frame; re-kick with a gap so the frame
 	 * finishes before the next. Count the code once regardless of frame count. */
+	if (cmd->is_raw)
+	{
+		/* Raw AC frames carry full state and are long: fire once, then wait for
+		 * the TIM16 ISR to finish the frame before moving on. */
+		if (uremote_fire_cmd(cmd))
+		{
+			uint16_t guard = 0;   /* ~250 ms cap so a stuck frame can't hang the sweep */
+			while (ir_ota_data_tx_active && guard < 250)
+			{
+				vTaskDelay(pdMS_TO_TICKS(5));
+				guard += 5;
+			}
+			c->sent++;
+		}
+		vTaskDelay(pdMS_TO_TICKS(120));   /* settle gap before the next code */
+	}
+	else
 	{
 		bool fired = false;
 		for (uint8_t r = 0; r < UREMOTE_BF_FRAME_REPEATS; r++)
@@ -1452,9 +1475,9 @@ static bool uremote_bf_fire_cb(void *vctx, const ir_universal_cmd_t *cmd, uint16
 		}
 		if (fired)
 			c->sent++;
+		vTaskDelay(pdMS_TO_TICKS(160));   /* settle gap before the next code */
 	}
 
-	vTaskDelay(pdMS_TO_TICKS(160));   /* settle gap before the next code */
 	return true;
 } // static bool uremote_bf_fire_cb(...)
 
@@ -1492,7 +1515,8 @@ static void uremote_bf_run(const char *file_path, const uremote_function_t *fn)
 	u8g2_DrawStr(&m1_u8g2, 6, 60, "BACK to stop");
 	m1_u8g2_nextpage();
 
-	uremote_bf_stream(file_path, fn->record_name, uremote_bf_fire_cb, &c, NULL, 0);
+	uremote_bf_stream(file_path, fn->record_name, uremote_bf_fire_cb, &c,
+	                  s_uremote_raw_samples, FLIPPER_IR_RAW_MAX_SAMPLES);
 
 	if (c.sent == 0 && !c.aborted)
 	{
