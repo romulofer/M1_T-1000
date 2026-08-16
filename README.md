@@ -29,6 +29,8 @@
 
 ### Sub-GHz Enhancements
 - **30+ protocol decoders** — Princeton, CAME, Nice Flo, Keeloq, Security+ 2.0, Linear, Holtek, Hormann, Marantec, Somfy, and many more
+- **Send once or repeat** — pick on the replay screen with `LEFT`/`RIGHT`: send a saved signal a single time (like one remote button press) or loop it until you stop — see [Send modes](documentation/subghz_send_modes.md)
+- **Live RSSI bar while reading** — the Record screen shows signal strength with a detection-threshold mark and a dBm readout, and listens *before* you arm a recording so you can find an active frequency first — see [Live RSSI indicator](documentation/subghz_rssi_bar.md)
 - **Spectrum Analyzer** — visual RF spectrum display with a persistent peak hold (max hold) trace
 - **RSSI Meter** — real-time signal strength with a 128-sample rolling history timeline graph
 - **Frequency Scanner** — find active frequencies

@@ -4,6 +4,32 @@ All notable changes to the M1 T-1000 firmware will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Sub-GHz send once or repeat.** The replay screen now shows the active TX mode
+  and `LEFT`/`RIGHT` toggle it: **Once** sends a single burst and stops, **Repeat**
+  keeps looping until `BACK`. Replay previously always looped, which is wrong for a
+  gate/garage remote where one press is one command. The mode is shared by every
+  send path (Flipper `.sub`, native `.sgh`, the replay browser, Add Manually, and an
+  M1 Link remote trigger) and sticks for the session; it can be flipped mid-send and
+  takes effect at the next signal boundary. Adds a "Sending" screen state, since the
+  radio is keyed as soon as a signal is loaded. Notes:
+  `documentation/subghz_send_modes.md`.
+- **Live RSSI indicator on the Sub-GHz Record view.** Both READY and ACTIVE drop the
+  antenna icon for a full-width RSSI bar with a static detection-threshold tick and a
+  numeric dBm readout, so silence, noise and real signal are distinguishable at a
+  glance:
+  - **READY pre-scan:** the radio listens in RX (no SD writer, no raw capture) so the
+    bar tracks the selected frequency *before* a recording is armed; it re-tunes on
+    every band/frequency change and hands the radio to the recorder on `OK`.
+  - **ACTIVE:** a 100 ms queue timeout refreshes the bar during silence, not only when
+    samples flush or a protocol decodes; after a decode the readout holds the decoded
+    RSSI. A real queue event still preempts immediately, so the capture path is
+    unchanged.
+  - Bar geometry lives in `m1_csrc/m1_sub_ghz_rssi_bar.inc`, included inline (no new
+    translation unit, no CMake change) and compiled by the host test
+    `tools/host_test/test_subghz_rssi.c` for a single source of truth. Notes:
+    `documentation/subghz_rssi_bar.md`.
+
 ## [0.3.0] - 2026-08-12
 
 ### Added
