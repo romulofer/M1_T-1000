@@ -25,6 +25,13 @@
 #define IR_UNIVERSAL_PATH_MAX_LEN    256
 #define IR_UNIVERSAL_IRDB_ROOT       "0:/IR"
 
+/* Power-code databases blasted by the "Power Off TVs" / "Power Off A/V"
+ * dashboard actions. Public so the host contract test can verify each one
+ * against the shipped ir_database tree that gets copied to the SD card. */
+#define IR_POWER_DB_PATH      IR_UNIVERSAL_IRDB_ROOT "/TV/Universal_Power.ir"
+#define IR_AUDIO_DB_PATH      IR_UNIVERSAL_IRDB_ROOT "/Audio/Universal_Power.ir"
+#define IR_PROJ_DB_PATH       IR_UNIVERSAL_IRDB_ROOT "/Projector/Universal_Projector.ir"
+
 typedef enum {
 	IR_UNIVERSAL_MODE_DASHBOARD = 0,
 	IR_UNIVERSAL_MODE_BROWSE_CATEGORY,

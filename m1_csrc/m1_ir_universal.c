@@ -40,10 +40,9 @@
 
 #define DASHBOARD_ITEM_COUNT  7
 
-/* Power-code databases blasted by the "Power Off" actions */
-#define IR_POWER_DB_PATH      IR_UNIVERSAL_IRDB_ROOT "/TV/Universal_Power.ir"
-#define IR_AUDIO_DB_PATH      IR_UNIVERSAL_IRDB_ROOT "/Audio/Universal_Power.ir"
-#define IR_PROJ_DB_PATH       IR_UNIVERSAL_IRDB_ROOT "/Projector/Universal_Projector.ir"
+/* The power-code database paths blasted by the "Power Off" actions live in
+ * m1_ir_universal.h so the host contract test can check them against the
+ * shipped ir_database tree. */
 #define DASHBOARD_ITEM_HEIGHT 9
 #define DASHBOARD_START_Y     13
 
