@@ -925,16 +925,24 @@ void HAL_PCD_MspDeInit(PCD_HandleTypeDef* hpcd)
 } // void HAL_PCD_MspDeInit(PCD_HandleTypeDef* hpcd)
 
 
-#ifdef M1_APP_BADUSB_ENABLE
-#include "usbd_hid.h"
+#if defined(M1_APP_BADUSB_ENABLE) || defined(M1_APP_U2F_ENABLE)
 #include "m1_log_debug.h"
 
 #define BUSB_TAG  "BUSB"
 
 extern uint8_t USBD_DeviceDesc[];
 
-/* Saved device descriptor bytes to restore after HID mode */
+/* Saved device descriptor bytes to restore after an exclusive USB mode
+ * (BadUSB HID keyboard or U2F CTAPHID) hands control back to CDC+MSC. */
 static uint8_t saved_desc[7]; /* bytes 4-6 (class), 8-11 (VID+PID) */
+
+/* Disconnect settle time: host needs time to fully process the USB disconnect
+ * event and clear its driver state before we present a new device.
+ * Flipper Zero uses 500ms; this is a known USB best practice. */
+#define USB_DISCONNECT_DELAY_MS  500
+
+#ifdef M1_APP_BADUSB_ENABLE
+#include "usbd_hid.h"
 
 /* Use STM32 VID with a unique PID that has no cached driver association.
  * This forces Windows to install the generic USB HID keyboard driver.
@@ -942,11 +950,6 @@ static uint8_t saved_desc[7]; /* bytes 4-6 (class), 8-11 (VID+PID) */
  * control requests that our simple HID device can't handle. */
 #define BADUSB_HID_VID   0x0483
 #define BADUSB_HID_PID   0x572B
-
-/* Disconnect settle time: host needs time to fully process the USB disconnect
- * event and clear its driver state before we present a new device.
- * Flipper Zero uses 500ms; this is a known USB best practice. */
-#define USB_DISCONNECT_DELAY_MS  500
 
 /*============================================================================*/
 /**
@@ -1062,11 +1065,105 @@ void m1_usb_switch_to_hid(void)
 
     M1_LOG_I(BUSB_TAG, "HID mode active, waiting for host enum\r\n");
 }
+#endif /* M1_APP_BADUSB_ENABLE */
 
+#ifdef M1_APP_U2F_ENABLE
+#include "usbd_u2f.h"
+
+/* Distinct PID from BadUSB's so the two exclusive modes never look like the
+ * same cached device to a host. Generic USB HID class binding doesn't care
+ * about VID/PID (bInterfaceClass=0x03 is enough), so no spoofing needed. */
+#define U2F_HID_VID   0x0483
+#define U2F_HID_PID   0x5730
 
 /*============================================================================*/
 /**
-  * @brief  Switch USB back from HID to CDC+MSC (normal mode)
+  * @brief  Switch USB from CDC+MSC to CTAPHID mode (for U2F)
+  *
+  * Same disconnect/patch-descriptor/reconnect flow as
+  * m1_usb_switch_to_hid(), registering USBD_U2F instead of USBD_HID.
+  */
+/*============================================================================*/
+void m1_usb_switch_to_u2f(void)
+{
+    m1_USB_CDC_ready = -2;
+    m1_USB_MSC_ready = -2;
+
+    M1_LOG_I(BUSB_TAG, "Switching to U2F CTAPHID mode\r\n");
+
+    USBD_Stop(&hUsbDeviceFS);
+    USBD_DeInit(&hUsbDeviceFS);
+
+    HAL_PCD_DeInit(&hpcd_USB_DRD_FS);
+    hpcd_USB_DRD_FS.State = HAL_PCD_STATE_RESET;
+
+    osDelay(USB_DISCONNECT_DELAY_MS);
+
+    saved_desc[0] = USBD_DeviceDesc[4];
+    saved_desc[1] = USBD_DeviceDesc[5];
+    saved_desc[2] = USBD_DeviceDesc[6];
+    saved_desc[3] = USBD_DeviceDesc[8];
+    saved_desc[4] = USBD_DeviceDesc[9];
+    saved_desc[5] = USBD_DeviceDesc[10];
+    saved_desc[6] = USBD_DeviceDesc[11];
+
+    USBD_DeviceDesc[4]  = 0x00;
+    USBD_DeviceDesc[5]  = 0x00;
+    USBD_DeviceDesc[6]  = 0x00;
+    USBD_DeviceDesc[8]  = (uint8_t)(U2F_HID_VID & 0xFF);
+    USBD_DeviceDesc[9]  = (uint8_t)(U2F_HID_VID >> 8);
+    USBD_DeviceDesc[10] = (uint8_t)(U2F_HID_PID & 0xFF);
+    USBD_DeviceDesc[11] = (uint8_t)(U2F_HID_PID >> 8);
+
+    hpcd_USB_DRD_FS.Instance = USB_DRD_FS;
+    hpcd_USB_DRD_FS.Init.dev_endpoints = 8;
+    hpcd_USB_DRD_FS.Init.speed = USBD_FS_SPEED;
+    hpcd_USB_DRD_FS.Init.phy_itface = PCD_PHY_EMBEDDED;
+    hpcd_USB_DRD_FS.Init.Sof_enable = DISABLE;
+    hpcd_USB_DRD_FS.Init.low_power_enable = DISABLE;
+    hpcd_USB_DRD_FS.Init.lpm_enable = DISABLE;
+    hpcd_USB_DRD_FS.Init.battery_charging_enable = DISABLE;
+    hpcd_USB_DRD_FS.Init.vbus_sensing_enable = DISABLE;
+    hpcd_USB_DRD_FS.Init.bulk_doublebuffer_enable = DISABLE;
+    hpcd_USB_DRD_FS.Init.iso_singlebuffer_enable = DISABLE;
+    if (HAL_PCD_Init(&hpcd_USB_DRD_FS) != HAL_OK)
+        Error_Handler();
+
+    if (USBD_Init(&hUsbDeviceFS, &Class_Desc, 0) != USBD_OK)
+        Error_Handler();
+
+    if (USBD_RegisterClass(&hUsbDeviceFS, &USBD_U2F) != USBD_OK)
+        Error_Handler();
+
+    hUsbDeviceFS.NumClasses = 0;
+
+    hUsbDeviceFS.tclasslist[0].ClassType = CLASS_TYPE_HID;
+    hUsbDeviceFS.tclasslist[0].ClassId   = 0;
+    hUsbDeviceFS.tclasslist[0].Active    = 1;
+    hUsbDeviceFS.tclasslist[0].NumIf     = 1;
+    hUsbDeviceFS.tclasslist[0].Ifs[0]    = 0;
+    hUsbDeviceFS.tclasslist[0].NumEps    = 2;
+    hUsbDeviceFS.tclasslist[0].Eps[0].add     = U2F_EPIN_ADDR;
+    hUsbDeviceFS.tclasslist[0].Eps[0].type    = USBD_EP_TYPE_INTR;
+    hUsbDeviceFS.tclasslist[0].Eps[0].size    = U2F_EP_SIZE;
+    hUsbDeviceFS.tclasslist[0].Eps[0].is_used = 1;
+    hUsbDeviceFS.tclasslist[0].Eps[1].add     = U2F_EPOUT_ADDR;
+    hUsbDeviceFS.tclasslist[0].Eps[1].type    = USBD_EP_TYPE_INTR;
+    hUsbDeviceFS.tclasslist[0].Eps[1].size    = U2F_EP_SIZE;
+    hUsbDeviceFS.tclasslist[0].Eps[1].is_used = 1;
+
+    if (USBD_Start(&hUsbDeviceFS) != USBD_OK)
+        Error_Handler();
+
+    hpcd_USB_DRD_FS.pData = &hUsbDeviceFS;
+
+    M1_LOG_I(BUSB_TAG, "U2F mode active, waiting for host enum\r\n");
+}
+#endif /* M1_APP_U2F_ENABLE */
+
+/*============================================================================*/
+/**
+  * @brief  Switch USB back from an exclusive mode (HID or U2F) to CDC+MSC
   */
 /*============================================================================*/
 void m1_usb_switch_to_normal(void)
@@ -1106,4 +1203,4 @@ void m1_usb_switch_to_normal(void)
 
     M1_LOG_I(BUSB_TAG, "CDC+MSC mode restored\r\n");
 }
-#endif /* M1_APP_BADUSB_ENABLE */
+#endif /* M1_APP_BADUSB_ENABLE || M1_APP_U2F_ENABLE */

@@ -95,14 +95,21 @@ uint8_t m1_usb_msc_process(void);
 uint8_t m1_usb_msc_sd_detected(void);
 
 /*********************************************/
-// USB mode switching (BadUSB)
+// USB mode switching (BadUSB, U2F)
 #define M1_USB_MODE_NORMAL   1
 #define M1_USB_MODE_HID     -2
 
-#ifdef M1_APP_BADUSB_ENABLE
-void m1_usb_switch_to_hid(void);
+#if defined(M1_APP_BADUSB_ENABLE) || defined(M1_APP_U2F_ENABLE)
 void m1_usb_switch_to_normal(void);
 static inline int8_t m1_usb_get_current_mode(void) { return m1_USB_CDC_ready; }
+#endif
+
+#ifdef M1_APP_BADUSB_ENABLE
+void m1_usb_switch_to_hid(void);
+#endif
+
+#ifdef M1_APP_U2F_ENABLE
+void m1_usb_switch_to_u2f(void);
 #endif
 
 #endif /* M1_USB_CDC_MSC_H_ */

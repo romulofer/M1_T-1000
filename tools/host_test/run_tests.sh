@@ -37,4 +37,21 @@ SUBGHZ_BIN="$DIR/test_subghz_rssi"
 	"$DIR/test_subghz_rssi.c" \
 	-o "$SUBGHZ_BIN"
 "$SUBGHZ_BIN"
+rc=$?
+[ $rc -eq 0 ] || exit $rc
+
+# U2F/CTAP1 core: HMAC-SHA256 + SHA-256 known-answer vectors, and a
+# REGISTER/AUTHENTICATE round trip verified against uECC_verify. Pure
+# logic, no HAL/FreeRTOS/USB needed.
+U2F_BIN="$DIR/test_u2f_core"
+"$CC" -std=c11 -Wall -Wextra -O0 -g \
+	-DuECC_PLATFORM=0 -DuECC_SUPPORTS_secp160r1=0 -DuECC_SUPPORTS_secp192r1=0 \
+	-DuECC_SUPPORTS_secp224r1=0 -DuECC_SUPPORTS_secp256k1=0 -DuECC_SUPPORT_COMPRESSED_POINT=0 \
+	-I"$ROOT/m1_csrc" -I"$ROOT/Middlewares/uECC" -I"$ROOT/Middlewares/sha256" \
+	"$DIR/test_u2f_core.c" \
+	"$ROOT/m1_csrc/m1_u2f_core.c" \
+	"$ROOT/Middlewares/uECC/uECC.c" \
+	"$ROOT/Middlewares/sha256/sha256.c" \
+	-o "$U2F_BIN"
+"$U2F_BIN"
 exit $?

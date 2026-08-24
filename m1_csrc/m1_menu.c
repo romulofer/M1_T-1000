@@ -337,11 +337,16 @@ S_M1_Menu_t menu_GPIO_Pin_Map =
     "Pin Map", gpio_pin_map_monitor, NULL, NULL, 0, 0, NULL, NULL, NULL
 };
 
+S_M1_Menu_t menu_GPIO_I2C_Scan =
+{
+    "I2C Scan", gpio_i2c_scan, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+
 S_M1_Menu_t menu_GPIO =
 {
-    "GPIO", menu_gpio_init, menu_gpio_exit, gpio_xkey_handler, 6, 0, menu_m1_icon_gpio, gpio_gui_update,
+    "GPIO", menu_gpio_init, menu_gpio_exit, gpio_xkey_handler, 7, 0, menu_m1_icon_gpio, gpio_gui_update,
     {&menu_GPIO_GPIO_Manual_Control, &menu_GPIO_3_3V_On_GPIO, &menu_GPIO_5V_On_GPIO, &menu_GPIO_Field_Detect,
-     &menu_GPIO_USB_UART_Bridge, &menu_GPIO_Pin_Map}
+     &menu_GPIO_USB_UART_Bridge, &menu_GPIO_Pin_Map, &menu_GPIO_I2C_Scan}
 };
 
 /*------------------------------- > Settings ---------------------------------*/
@@ -721,6 +726,16 @@ S_M1_Menu_t menu_BadUSB =
     "BadUSB", badusb_main_menu, NULL, NULL, 0, 0, menu_m1_icon_badusb, NULL, NULL
 };
 #endif /* M1_APP_BADUSB_ENABLE */
+
+/*-------------------------------- > U2F -------------------------------------*/
+#ifdef M1_APP_U2F_ENABLE
+#include "m1_u2f.h"
+
+S_M1_Menu_t menu_U2F =
+{
+    "U2F", u2f_main_menu, NULL, NULL, 0, 0, NULL, NULL, NULL
+};
+#endif /* M1_APP_U2F_ENABLE */
 
 /*-------------------------------- > Games -----------------------------------*/
 #ifdef M1_APP_GAMES_ENABLE

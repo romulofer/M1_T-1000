@@ -54,6 +54,9 @@ extern void menu_setting_power_init(void);
 #ifdef M1_APP_BADUSB_ENABLE
 extern S_M1_Menu_t menu_BadUSB;
 #endif
+#ifdef M1_APP_U2F_ENABLE
+extern S_M1_Menu_t menu_U2F;
+#endif
 #ifdef M1_APP_GAMES_ENABLE
 extern S_M1_Menu_t menu_Games;
 #endif
@@ -102,6 +105,14 @@ static S_M1_Menu_t menu_Power =
 #define ENT_BADUSB
 #endif
 
+#ifdef M1_APP_U2F_ENABLE
+#define OPT_U2F  1
+#define ENT_U2F  &menu_U2F,
+#else
+#define OPT_U2F  0
+#define ENT_U2F
+#endif
+
 #ifdef M1_APP_GAMES_ENABLE
 #define OPT_GAMES   1
 #define ENT_GAMES   &menu_Games,
@@ -126,7 +137,7 @@ static S_M1_Menu_t menu_Power =
 #define ENT_ESPLINK
 #endif
 
-#define MAIN_MENU_COUNT  (10 + OPT_BADUSB + OPT_GAMES + OPT_APPS + OPT_ESPLINK)
+#define MAIN_MENU_COUNT  (10 + OPT_BADUSB + OPT_U2F + OPT_GAMES + OPT_APPS + OPT_ESPLINK)
 
 S_M1_Menu_t menu_Main =
 {
@@ -135,6 +146,7 @@ S_M1_Menu_t menu_Main =
      &menu_Wifi, &menu_Bluetooth,
      ENT_ESPLINK
      ENT_BADUSB
+     ENT_U2F
      ENT_GAMES
      ENT_APPS
      &menu_Storage, &menu_Power, &menu_System}

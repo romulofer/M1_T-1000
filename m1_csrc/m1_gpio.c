@@ -93,6 +93,7 @@ void gpio_manual_control(void);
 void gpio_5v_on_gpio(void);
 void gpio_3_3v_on_gpio(void);
 void gpio_usb_uart_bridge(void);
+void gpio_i2c_scan(void);
 void ext_power_5V_set(uint8_t set_mode);
 void ext_power_3V_set(uint8_t set_mode);
 void gpio_gui_update(const S_M1_Menu_t *phmenu, uint8_t sel_item);
@@ -333,6 +334,196 @@ void gpio_usb_uart_bridge(void)
 
 	/* Power off external 3.3V */
 	ext_power_3V_set(0);
+
+	xQueueReset(main_q_hdl);
+	m1_app_send_q_message(main_q_hdl, Q_EVENT_MENU_EXIT);
+}
+
+/* Bit-banged I2C scan on two fixed header pins. No hardware I2C peripheral
+ * reaches the external header (I2C1 is PB6/PB7, wired only to onboard
+ * chips), so this drives SCL/SDA as open-drain outputs by hand. */
+#define I2C_SCAN_SCL_PORT      GPIOE
+#define I2C_SCAN_SCL_PIN       PE2_Pin
+#define I2C_SCAN_SDA_PORT      GPIOE
+#define I2C_SCAN_SDA_PIN       PE4_Pin
+#define I2C_SCAN_HALF_PERIOD_US 5U   /* ~100kHz bus rate */
+#define I2C_SCAN_ADDR_MIN      0x08U
+#define I2C_SCAN_ADDR_MAX      0x77U
+#define I2C_SCAN_FOUND_MAX     16U
+
+static void i2c_scan_delay_us(uint32_t us)
+{
+	uint32_t start = DWT->CYCCNT;
+	uint32_t cycles = (SystemCoreClock / 1000000U) * us;
+	while ((DWT->CYCCNT - start) < cycles) {}
+}
+
+static void i2c_scan_scl(uint8_t level)
+{
+	HAL_GPIO_WritePin(I2C_SCAN_SCL_PORT, I2C_SCAN_SCL_PIN, level ? GPIO_PIN_SET : GPIO_PIN_RESET);
+	i2c_scan_delay_us(I2C_SCAN_HALF_PERIOD_US);
+}
+
+static void i2c_scan_sda(uint8_t level)
+{
+	HAL_GPIO_WritePin(I2C_SCAN_SDA_PORT, I2C_SCAN_SDA_PIN, level ? GPIO_PIN_SET : GPIO_PIN_RESET);
+	i2c_scan_delay_us(I2C_SCAN_HALF_PERIOD_US);
+}
+
+static void i2c_scan_start(void)
+{
+	i2c_scan_sda(1);
+	i2c_scan_scl(1);
+	i2c_scan_sda(0);
+	i2c_scan_scl(0);
+}
+
+static void i2c_scan_stop(void)
+{
+	i2c_scan_sda(0);
+	i2c_scan_scl(1);
+	i2c_scan_sda(1);
+}
+
+/* Clocks out one byte MSB-first, releases SDA, and returns true if the
+ * target pulled SDA low during the 9th clock (ACK). */
+static bool i2c_scan_write_byte(uint8_t byte)
+{
+	bool ack;
+
+	for (uint8_t i = 0; i < 8; i++)
+	{
+		i2c_scan_sda((byte & 0x80U) != 0U);
+		byte <<= 1;
+		i2c_scan_scl(1);
+		i2c_scan_scl(0);
+	}
+
+	i2c_scan_sda(1); /* release for slave ACK */
+	i2c_scan_scl(1);
+	ack = (HAL_GPIO_ReadPin(I2C_SCAN_SDA_PORT, I2C_SCAN_SDA_PIN) == GPIO_PIN_RESET);
+	i2c_scan_scl(0);
+
+	return ack;
+}
+
+/* Probes I2C_SCAN_ADDR_MIN..I2C_SCAN_ADDR_MAX and fills found[] with
+ * every address that ACKed. Returns the number found. */
+static uint8_t i2c_scan_run(uint8_t *found, uint8_t found_max)
+{
+	uint8_t n_found = 0;
+
+	for (uint16_t addr = I2C_SCAN_ADDR_MIN; addr <= I2C_SCAN_ADDR_MAX; addr++)
+	{
+		i2c_scan_start();
+		bool ack = i2c_scan_write_byte((uint8_t)(addr << 1)); /* write bit = 0 */
+		i2c_scan_stop();
+
+		if (ack && n_found < found_max)
+		{
+			found[n_found++] = (uint8_t)addr;
+		}
+	}
+
+	return n_found;
+}
+
+void gpio_i2c_scan(void)
+{
+	S_M1_Buttons_Status this_button_status;
+	S_M1_Main_Q_t q_item;
+	BaseType_t ret;
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+	uint8_t found[I2C_SCAN_FOUND_MAX];
+	uint8_t n_found = 0;
+	bool need_redraw = true;
+	bool have_scanned = false;
+
+	/* Enable DWT cycle counter for delay_us (idempotent if already on) */
+	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+	DWT->CYCCNT = 0;
+	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+	/* Claim PE2/PE4 as open-drain outputs with internal pull-up, bus idle high */
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+	GPIO_InitStruct.Pull = GPIO_PULLUP;
+	GPIO_InitStruct.Pin = I2C_SCAN_SCL_PIN;
+	HAL_GPIO_Init(I2C_SCAN_SCL_PORT, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin = I2C_SCAN_SDA_PIN;
+	HAL_GPIO_Init(I2C_SCAN_SDA_PORT, &GPIO_InitStruct);
+	HAL_GPIO_WritePin(I2C_SCAN_SCL_PORT, I2C_SCAN_SCL_PIN, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(I2C_SCAN_SDA_PORT, I2C_SCAN_SDA_PIN, GPIO_PIN_SET);
+
+	bool running = true;
+	while (running)
+	{
+		ret = xQueueReceive(main_q_hdl, &q_item, pdMS_TO_TICKS(50));
+		if (ret == pdTRUE && q_item.q_evt_type == Q_EVENT_KEYPAD)
+		{
+			ret = xQueueReceive(button_events_q_hdl, &this_button_status, 0);
+			if (ret == pdTRUE)
+			{
+				if (this_button_status.event[BUTTON_BACK_KP_ID] == BUTTON_EVENT_CLICK)
+				{
+					running = false;
+				}
+				else if (this_button_status.event[BUTTON_OK_KP_ID] == BUTTON_EVENT_CLICK)
+				{
+					n_found = i2c_scan_run(found, I2C_SCAN_FOUND_MAX);
+					have_scanned = true;
+					need_redraw = true;
+				}
+			}
+		}
+
+		if (!have_scanned)
+		{
+			n_found = i2c_scan_run(found, I2C_SCAN_FOUND_MAX);
+			have_scanned = true;
+			need_redraw = true;
+		}
+
+		if (need_redraw)
+		{
+			need_redraw = false;
+
+			u8g2_FirstPage(&m1_u8g2);
+			do {
+				u8g2_SetDrawColor(&m1_u8g2, M1_DISP_DRAW_COLOR_TXT);
+				u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_B);
+				u8g2_DrawStr(&m1_u8g2, 2, 11, "I2C Scan");
+
+				u8g2_SetFont(&m1_u8g2, M1_DISP_SUB_MENU_FONT_N);
+				u8g2_DrawStr(&m1_u8g2, 2, 23, "SCL: PE2  SDA: PE4");
+
+				if (n_found == 0)
+				{
+					u8g2_DrawStr(&m1_u8g2, 2, 35, "No devices found");
+				}
+				else
+				{
+					char buf[32];
+					uint8_t y = 35;
+					for (uint8_t i = 0; i < n_found && y <= 55; i++)
+					{
+						snprintf(buf, sizeof(buf), "0x%02X", found[i]);
+						u8g2_DrawStr(&m1_u8g2, 2 + (i % 4) * 30, y, buf);
+						if ((i % 4) == 3) y += 12;
+					}
+				}
+
+				u8g2_DrawStr(&m1_u8g2, 2, 63, "OK: rescan  BACK: exit");
+			} while (u8g2_NextPage(&m1_u8g2));
+		}
+	}
+
+	/* Release pins back to analog like menu_gpio_exit() does for the rest */
+	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Pin = I2C_SCAN_SCL_PIN;
+	HAL_GPIO_Init(I2C_SCAN_SCL_PORT, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin = I2C_SCAN_SDA_PIN;
+	HAL_GPIO_Init(I2C_SCAN_SDA_PORT, &GPIO_InitStruct);
 
 	xQueueReset(main_q_hdl);
 	m1_app_send_q_message(main_q_hdl, Q_EVENT_MENU_EXIT);
@@ -635,6 +826,11 @@ void gpio_gui_update(const S_M1_Menu_t *phmenu, uint8_t sel_item)
 
 			case 5:
 				m1_draw_text(&m1_u8g2, 6, 47, 116, "Live map of physical pin states",
+				             TEXT_ALIGN_LEFT);
+				break;
+
+			case 6:
+				m1_draw_text(&m1_u8g2, 6, 47, 116, "Scan bus on PE2 (SCL) / PE4 (SDA)",
 				             TEXT_ALIGN_LEFT);
 				break;
 

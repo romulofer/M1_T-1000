@@ -8,11 +8,20 @@ add_library(m1_01 INTERFACE)
 # Enable CMake support for ASM and C languages
 enable_language(C ASM)
 
-target_compile_definitions(m1_01 INTERFACE 
-	USE_HAL_DRIVER 
+target_compile_definitions(m1_01 INTERFACE
+	USE_HAL_DRIVER
 	STM32H573xx
     STM32_THREAD_SAFE_STRATEGY=4
     $<$<CONFIG:Debug>:DEBUG>
+
+    # micro-ecc: portable C only (no ARM asm path), P-256 only to save flash
+    uECC_PLATFORM=0
+    uECC_SUPPORTS_secp160r1=0
+    uECC_SUPPORTS_secp192r1=0
+    uECC_SUPPORTS_secp224r1=0
+    uECC_SUPPORTS_secp256r1=1
+    uECC_SUPPORTS_secp256k1=0
+    uECC_SUPPORT_COMPRESSED_POINT=0
 )
 
 target_include_directories(m1_01 INTERFACE
@@ -63,8 +72,11 @@ target_include_directories(m1_01 INTERFACE
     ../../USB/Class/MSC/Inc
     ../../USB/Class/MSC/Src
     ../../USB/Class/HID/Inc
+    ../../USB/Class/U2F/Inc
     ../../USB/Core/Inc
     ../../USB/Core/Src
+    ../../Middlewares/uECC
+    ../../Middlewares/sha256
 )
 
 target_sources(m1_01 INTERFACE
@@ -516,6 +528,12 @@ target_sources(m1_01 INTERFACE
     ../../m1_csrc/m1_app_api.c
     ../../m1_csrc/m1_app_manager.c
     ../../m1_csrc/m1_field_detect.c
+    # === Enhanced firmware: U2F/CTAP1 authenticator ===
+    ../../Middlewares/uECC/uECC.c
+    ../../Middlewares/sha256/sha256.c
+    ../../m1_csrc/m1_u2f_core.c
+    ../../m1_csrc/m1_u2f.c
+    ../../USB/Class/U2F/Src/usbd_u2f.c
 )
 
 target_link_directories(m1_01 INTERFACE
